@@ -1,0 +1,63 @@
+import "vga.kl";
+import "multiboot.kl";
+import "gdt.kl";
+import "idt.kl";
+import "isr.kl";
+import "pmm.kl";
+
+proc kmain(magic: u32, mbi: MultibootInfo*) -> void {
+    vga_clear(0x1F);
+
+    vga_print("==================================================", 0x1E, 1, 14);
+    vga_print("       MODULAR klangOS (with PMM Frame Alloc!)    ", 0x1F, 2, 14);
+    vga_print("==================================================", 0x1E, 3, 14);
+
+    asm "extern stack_top";
+    var kernel_stack_top: u64 = cast(u64, asm "lea rax, [rel stack_top]" -> u64);
+    gdt_init(kernel_stack_top);
+    vga_print("[OK] 64-bit GDT & TSS loaded", 0x1A, 5, 4);
+
+    asm "extern isr_stub_table";
+    var isr_table: u64* = cast(u64*, asm "lea rax, [rel isr_stub_table]" -> u64);
+    idt_init(isr_table);
+    vga_print("[OK] IDT loaded (32 gates active)", 0x1A, 6, 4);
+
+    asm "extern _kernel_end";
+    var kernel_end: u64 = cast(u64, asm "lea rax, [rel _kernel_end]" -> u64);
+    pmm_init(mbi, kernel_end);
+    vga_print("[OK] PMM Bitmap Initialized", 0x1A, 7, 4);
+
+    vga_print("Free Frames : ", 0x1F, 9, 4);
+    vga_print_dec(g_pmm_free_pages, 0x1E, 9, 18);
+
+    vga_print("Free RAM    : ", 0x1F, 10, 4);
+    vga_print_dec((g_pmm_free_pages * 4) / 1024, 0x1E, 10, 18);
+    vga_print(" MB", 0x1F, 10, 24);
+
+    var page1 = pmm_alloc_page();
+    var page2 = pmm_alloc_page();
+    var page3 = pmm_alloc_page();
+
+    vga_print("Alloc Page 1: ", 0x1A, 12, 4);
+    vga_print_hex(page1, 0x1E, 12, 18);
+
+    vga_print("Alloc Page 2: ", 0x1A, 13, 4);
+    vga_print_hex(page2, 0x1E, 13, 18);
+
+    vga_print("Alloc Page 3: ", 0x1A, 14, 4);
+    vga_print_hex(page3, 0x1E, 14, 18);
+
+    pmm_free_page(page2);
+    var page4 = pmm_alloc_page();
+
+    vga_print("Reuse Page 2: ", 0x1A, 16, 4);
+    vga_print_hex(page4, 0x1E, 16, 18);
+
+    vga_print("Kernel PMM is operational!", 0x1E, 19, 4);
+
+    while (1) {
+        asm "hlt";
+    }
+
+    return;
+}

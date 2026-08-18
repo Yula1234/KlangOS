@@ -1,0 +1,98 @@
+import "vga.kl";
+
+packed struct InterruptFrame {
+    r15:      u64,
+    r14:      u64,
+    r13:      u64,
+    r12:      u64,
+    r11:      u64,
+    r10:      u64,
+    r9:       u64,
+    r8:       u64,
+    rbp:      u64,
+    rdi:      u64,
+    rsi:      u64,
+    rdx:      u64,
+    rcx:      u64,
+    rbx:      u64,
+    rax:      u64,
+    int_no:   u64,
+    err_code: u64,
+    rip:      u64,
+    cs:       u64,
+    rflags:   u64,
+    rsp:      u64,
+    ss:       u64
+}
+
+proc get_exception_name(int_no: u64) -> char* {
+    if (int_no == 0)  return "#DE (Divide Error)";
+    if (int_no == 1)  return "#DB (Debug Exception)";
+    if (int_no == 3)  return "#BP (Breakpoint)";
+    if (int_no == 4)  return "#OF (Overflow)";
+    if (int_no == 5)  return "#BR (BOUND Range Exceeded)";
+    if (int_no == 6)  return "#UD (Invalid Opcode)";
+    if (int_no == 7)  return "#NM (Device Not Available)";
+    if (int_no == 8)  return "#DF (Double Fault)";
+    if (int_no == 10) return "#TS (Invalid TSS)";
+    if (int_no == 11) return "#NP (Segment Not Present)";
+    if (int_no == 12) return "#SS (Stack-Segment Fault)";
+    if (int_no == 13) return "#GP (General Protection Fault)";
+    if (int_no == 14) return "#PF (Page Fault)";
+    if (int_no == 16) return "#MF (x87 Floating-Point Exception)";
+    if (int_no == 17) return "#AC (Alignment Check)";
+    if (int_no == 18) return "#MC (Machine Check)";
+    if (int_no == 19) return "#XF (SIMD Floating-Point Exception)";
+    return "Unknown Exception";
+}
+
+proc isr_handler(frame: InterruptFrame*) -> void {
+    vga_clear(0x4F);
+
+    vga_print("==================================================", 0x4E, 1, 14);
+    vga_print("              KERNEL PANIC (CPU EXCEPTION)        ", 0x4F, 2, 14);
+    vga_print("==================================================", 0x4E, 3, 14);
+
+    vga_print("Exception : ", 0x4F, 5, 4);
+    vga_print(get_exception_name(frame.int_no), 0x4E, 5, 16);
+
+    vga_print("Int Vector: ", 0x4F, 6, 4);
+    vga_print_dec(frame.int_no, 0x4F, 6, 16);
+
+    vga_print("Error Code: ", 0x4F, 7, 4);
+    vga_print_hex(frame.err_code, 0x4F, 7, 16);
+
+    vga_print("RIP       : ", 0x4E, 8, 4);
+    vga_print_hex(frame.rip, 0x4E, 8, 16);
+
+    if (frame.int_no == 14) {
+        var cr2: u64 = asm "mov rax, cr2" -> u64;
+        vga_print("Fault Addr: ", 0x4E, 9, 4);
+        vga_print_hex(cr2, 0x4E, 9, 16);
+    }
+
+    vga_print("--- REGISTERS DUMP ---", 0x4F, 11, 4);
+    
+    vga_print("RAX: ", 0x4F, 13, 4);  vga_print_hex(frame.rax, 0x4F, 13, 9);
+    vga_print("RBX: ", 0x4F, 14, 4);  vga_print_hex(frame.rbx, 0x4F, 14, 9);
+    vga_print("RCX: ", 0x4F, 15, 4);  vga_print_hex(frame.rcx, 0x4F, 15, 9);
+    vga_print("RDX: ", 0x4F, 16, 4);  vga_print_hex(frame.rdx, 0x4F, 16, 9);
+    vga_print("RSI: ", 0x4F, 17, 4);  vga_print_hex(frame.rsi, 0x4F, 17, 9);
+    vga_print("RDI: ", 0x4F, 18, 4);  vga_print_hex(frame.rdi, 0x4F, 18, 9);
+
+    vga_print("R8 : ", 0x4F, 13, 30); vga_print_hex(frame.r8,  0x4F, 13, 35);
+    vga_print("R9 : ", 0x4F, 14, 30); vga_print_hex(frame.r9,  0x4F, 14, 35);
+    vga_print("R10: ", 0x4F, 15, 30); vga_print_hex(frame.r10, 0x4F, 15, 35);
+    vga_print("R11: ", 0x4F, 16, 30); vga_print_hex(frame.r11, 0x4F, 16, 35);
+    vga_print("RSP: ", 0x4F, 17, 30); vga_print_hex(frame.rsp, 0x4F, 17, 35);
+    vga_print("RBP: ", 0x4F, 18, 30); vga_print_hex(frame.rbp, 0x4F, 18, 35);
+
+    vga_print("System halted.", 0x4E, 21, 4);
+
+    while (1) {
+        asm "cli";
+        asm "hlt";
+    }
+
+    return;
+}

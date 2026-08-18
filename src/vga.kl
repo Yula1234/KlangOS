@@ -1,0 +1,81 @@
+proc vga_clear(color: u8) -> void {
+    var vga: u16* = 0x000B_8000;
+    var blank = (color << 8) | 32;
+    var i = 0;
+
+    while (i < 80 * 25) {
+        vga[i] = blank;
+        i += 1;
+    }
+
+    return;
+}
+
+proc vga_print(str: char*, color: u8, line: u64, col: u64) -> void {
+    var vga: u16* = 0x000B_8000;
+    var offset = line * 80 + col;
+    var i = 0;
+
+    while (str[i]) {
+        vga[offset + i] = (color << 8) | str[i];
+        i += 1;
+    }
+
+    return;
+}
+
+proc vga_print_dec(val: u64, color: u8, line: u64, col: u64) -> void {
+    if (val == 0) {
+        vga_print("0", color, line, col);
+        return;
+    }
+
+    var buf: [24]char;
+    var temp = val;
+    var len = 0;
+
+    while (temp > 0) {
+        var rem = temp % 10;
+        buf[len] = cast(char, 48 + rem);
+        temp = temp / 10;
+        len += 1;
+    }
+
+    var start = 0;
+    var end = len - 1;
+    
+    while (start < end) {
+        var t = buf[start];
+        buf[start] = buf[end];
+        buf[end] = t;
+        start += 1;
+        end -= 1;
+    }
+
+    buf[len] = 0;
+
+    vga_print(&buf[0], color, line, col);
+    return;
+}
+
+proc vga_print_hex(val: u64, color: u8, line: u64, col: u64) -> void {
+    var hex_digits: char* = "0123456789ABCDEF";
+    
+    var buf: [19]char;
+
+    buf[0] = 48; 
+    buf[1] = 120;
+
+    var i = 0;
+    while (i < 8) {
+        var shift = (7 - i) * 4;
+        var digit = (val >> shift) & 0x0F;
+        buf[2 + i] = hex_digits[digit];
+        i += 1;
+    }
+
+    buf[10] = 0;
+
+    vga_print(&buf[0], color, line, col);
+    return;
+}

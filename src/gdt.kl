@@ -1,0 +1,71 @@
+packed struct TSS {
+    reserved0:  u32,
+    rsp0:       u64,
+    rsp1:       u64,
+    rsp2:       u64,
+    reserved1:  u64,
+    ist1:       u64,
+    ist2:       u64,
+    ist3:       u64,
+    ist4:       u64,
+    ist5:       u64,
+    ist6:       u64,
+    ist7:       u64,
+    reserved2:  u64,
+    reserved3:  u16,
+    iomap_base: u16
+}
+
+packed struct GdtPointer {
+    limit: u16,
+    base:  u64
+}
+
+var g_gdt: [7]u64;
+var g_tss: TSS;
+var g_gdt_ptr: GdtPointer;
+
+proc gdt_init(kernel_stack_top: u64) -> void {
+    var tss_ptr: u8* = cast(u8*, &g_tss);
+    var i = 0;
+    while (i < 104) {
+        tss_ptr[i] = 0;
+        i += 1;
+    }
+    g_tss.rsp0 = kernel_stack_top;
+    g_tss.iomap_base = 104;
+
+    var tss_base = cast(u64, &g_tss);
+    var tss_size = 104 - 1;
+
+    g_gdt[0] = 0x0000000000000000;
+    g_gdt[1] = 0x00209A0000000000;
+    g_gdt[2] = 0x0000920000000000;
+    g_gdt[3] = 0x0000F20000000000;
+    g_gdt[4] = 0x0020FA0000000000;
+
+    var tss_low: u64 = (cast(u64, tss_size) & 0xFFFF) |
+                       ((tss_base & 0x00FFFFFF) << 16) |
+                       (cast(u64, 0x89) << 40) |
+                       ((tss_base & 0xFF000000) << 32);
+    var tss_high: u64 = (tss_base >> 32) & 0xFFFFFFFF;
+
+    g_gdt[5] = tss_low;
+    g_gdt[6] = tss_high;
+
+    g_gdt_ptr.limit = cast(u16, (7 * 8) - 1);
+    g_gdt_ptr.base  = cast(u64, &g_gdt[0]);
+
+    asm "lea rax, [rel g_gdt_ptr]";
+    asm "lgdt [rax]";
+    asm "mov ax, 0x10";
+    asm "mov ds, ax";
+    asm "mov es, ax";
+    asm "mov fs, ax";
+    asm "mov gs, ax";
+    asm "mov ss, ax";
+    asm "mov ax, 0x28";
+    asm "ltr ax";
+
+    return;
+}
