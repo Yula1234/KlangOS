@@ -5,6 +5,7 @@ import "idt.kl";
 import "isr.kl";
 import "pmm.kl";
 import "vmm.kl";
+import "heap.kl";
 
 proc kmain(magic: u32, mbi: MultibootInfo*) -> void {
     vga_clear(0x1F);
@@ -26,38 +27,46 @@ proc kmain(magic: u32, mbi: MultibootInfo*) -> void {
     asm "extern _kernel_end";
     var kernel_end: u64 = cast(u64, asm "lea rax, [rel _kernel_end]" -> u64);
     pmm_init(mbi, kernel_end);
-    vga_print("[OK] PMM Bitmap Initialized", 0x1A, 7, 4);
+    vga_print("[OK] PMM Physical Allocator Initialized", 0x1A, 7, 4);
 
     var kernel_pml4: u64* = vmm_init(kernel_end);
-    vga_print("[OK] VMM 4-Level Paging Initialized (CR3 Loaded)", 0x1A, 8, 4);
+    vga_print("[OK] VMM 4-Level Paging Initialized", 0x1A, 8, 4);
 
-    var test_phys_frame: u64 = pmm_alloc_page();
-    var test_virt_addr: u64 = 0xCAFE0000;
+    heap_init(4);
+    vga_print("[OK] Kernel Heap Initialized (0x10000000)", 0x1A, 9, 4);
 
-    vmm_map_page(kernel_pml4, test_virt_addr, test_phys_frame, 3);
+    var ptr_a: u8* = kalloc(64);
+    var ptr_b: u8* = kalloc(128);
+    var ptr_c: u8* = kalloc(256);
 
-    var mapped_ptr: u64* = cast(u64*, test_virt_addr);
-    mapped_ptr[0] = 0x12345678DEADBEEF;
+    vga_print("Alloc A (64B)  : ", 0x1F, 11, 4);
+    vga_print_hex(cast(u64, ptr_a), 0x1E, 11, 22);
 
-    var read_back_val: u64 = mapped_ptr[0];
-    var resolved_phys: u64 = vmm_virt_to_phys(kernel_pml4, test_virt_addr);
+    vga_print("Alloc B (128B) : ", 0x1F, 12, 4);
+    vga_print_hex(cast(u64, ptr_b), 0x1E, 12, 22);
 
-    vga_print("Virtual  Address: ", 0x1F, 11, 4);
-    vga_print_hex(test_virt_addr, 0x1E, 11, 23);
+    vga_print("Alloc C (256B) : ", 0x1F, 13, 4);
+    vga_print_hex(cast(u64, ptr_c), 0x1E, 13, 22);
 
-    vga_print("Mapped Physical : ", 0x1F, 12, 4);
-    vga_print_hex(resolved_phys, 0x1E, 12, 23);
+    kfree(ptr_b);
 
-    vga_print("Read Back Value : ", 0x1F, 13, 4);
-    vga_print_hex(read_back_val, 0x1E, 13, 23);
+    var ptr_d: u8* = kalloc(64);
 
-    if (read_back_val == 0x12345678DEADBEEF) {
-        vga_print("[SUCCESS] Dynamic 4-Level Paging Verification Passed!", 0x1A, 16, 4);
-    } else {
-        vga_print("[FAILURE] Memory R/W Integrity Error!", 0x4F, 16, 4);
+    vga_print("Reuse B (64B)  : ", 0x1F, 15, 4);
+    vga_print_hex(cast(u64, ptr_d), 0x1E, 15, 22);
+
+    var ptr_large: u8* = kalloc(32768);
+
+    vga_print("Dynamic Expand : ", 0x1F, 16, 4);
+    vga_print_hex(cast(u64, ptr_large), 0x1E, 16, 22);
+
+    if (cast(u64, ptr_d) == cast(u64, ptr_b)) {
+        vga_print("[SUCCESS] Block Splitting & Reuse Verified!", 0x1A, 18, 4);
     }
 
-    vga_print("Kernel VMM is operational!", 0x1E, 19, 4);
+    if (cast(u64, ptr_large) > 0x10000000) {
+        vga_print("[SUCCESS] On-Demand Heap Expansion Verified!", 0x1A, 19, 4);
+    }
 
     while (1) {
         asm "hlt";

@@ -1,0 +1,222 @@
+import "vmm.kl";
+import "pmm.kl";
+
+packed struct HeapBlock {
+    size:    u64,
+    is_free: u64,
+    next:    HeapBlock*,
+    prev:    HeapBlock*
+}
+
+var g_heap_start: u64;
+var g_heap_end: u64;
+var g_heap_first_block: HeapBlock*;
+
+proc heap_memset(dst: u8*, val: u8, len: u64) -> void {
+    var i: u64 = 0;
+
+    while (i < len) {
+        dst[i] = val;
+        i += 1;
+    }
+
+    return;
+}
+
+proc heap_memcpy(dst: u8*, src: u8*, len: u64) -> void {
+    var i: u64 = 0;
+
+    while (i < len) {
+        dst[i] = src[i];
+        i += 1;
+    }
+
+    return;
+}
+
+proc heap_expand(needed_bytes: u64) -> u64 {
+    var pages: u64 = (needed_bytes + 4095) / 4096;
+    var old_end: u64 = g_heap_end;
+    var p: u64 = 0;
+
+    while (p < pages) {
+        var phys: u64 = pmm_alloc_page();
+
+        if (phys == 0) {
+            return 0;
+        }
+
+        var map_status: u64 = vmm_map_page(g_kernel_pml4, g_heap_end, phys, 3);
+
+        if (map_status == 0) {
+            return 0;
+        }
+
+        g_heap_end = g_heap_end + 4096;
+        p += 1;
+    }
+
+    var new_block_size: u64 = (pages * 4096) - 32;
+    var new_block: HeapBlock* = cast(HeapBlock*, old_end);
+
+    new_block.size    = new_block_size;
+    new_block.is_free = 1;
+    new_block.next    = cast(HeapBlock*, 0);
+    new_block.prev    = cast(HeapBlock*, 0);
+
+    if (cast(u64, g_heap_first_block) == 0) {
+        g_heap_first_block = new_block;
+        return 1;
+    }
+
+    var curr: HeapBlock* = g_heap_first_block;
+
+    while (cast(u64, curr.next) != 0) {
+        curr = curr.next;
+    }
+
+    curr.next      = new_block;
+    new_block.prev = curr;
+
+    if (curr.is_free == 1) {
+        if ((cast(u64, curr) + 32 + curr.size) == cast(u64, new_block)) {
+            curr.size = curr.size + 32 + new_block.size;
+            curr.next = cast(HeapBlock*, 0);
+        }
+    }
+
+    return 1;
+}
+
+proc heap_init(initial_pages: u64) -> u64 {
+    g_heap_start       = 0x10000000;
+    g_heap_end         = 0x10000000;
+    g_heap_first_block = cast(HeapBlock*, 0);
+
+    var status: u64 = heap_expand(initial_pages * 4096);
+
+    return status;
+}
+
+proc kalloc(size: u64) -> u8* {
+    if (size == 0) {
+        return cast(u8*, 0);
+    }
+
+    var aligned_size: u64 = (size + 15) & ~15;
+    var curr: HeapBlock*  = g_heap_first_block;
+
+    while (cast(u64, curr) != 0) {
+        if (curr.is_free == 1) {
+            if (curr.size >= aligned_size) {
+                if (curr.size >= (aligned_size + 32 + 16)) {
+                    var split_addr: u64        = cast(u64, curr) + 32 + aligned_size;
+                    var split_block: HeapBlock* = cast(HeapBlock*, split_addr);
+
+                    split_block.size    = curr.size - 32 - aligned_size;
+                    split_block.is_free = 1;
+                    split_block.next    = curr.next;
+                    split_block.prev    = curr;
+
+                    if (cast(u64, curr.next) != 0) {
+                        curr.next.prev = split_block;
+                    }
+
+                    curr.next = split_block;
+                    curr.size = aligned_size;
+                }
+
+                curr.is_free = 0;
+
+                return cast(u8*, cast(u64, curr) + 32);
+            }
+        }
+
+        curr = curr.next;
+    }
+
+    var expand_status: u64 = heap_expand(aligned_size + 32);
+
+    if (expand_status == 0) {
+        return cast(u8*, 0);
+    }
+
+    return kalloc(size);
+}
+
+proc kfree(ptr: u8*) -> void {
+    if (cast(u64, ptr) == 0) {
+        return;
+    }
+
+    var block: HeapBlock* = cast(HeapBlock*, cast(u64, ptr) - 32);
+
+    block.is_free = 1;
+
+    if (cast(u64, block.next) != 0) {
+        if (block.next.is_free == 1) {
+            if ((cast(u64, block) + 32 + block.size) == cast(u64, block.next)) {
+                block.size = block.size + 32 + block.next.size;
+                block.next = block.next.next;
+
+                if (cast(u64, block.next) != 0) {
+                    block.next.prev = block;
+                }
+            }
+        }
+    }
+
+    if (cast(u64, block.prev) != 0) {
+        if (block.prev.is_free == 1) {
+            if ((cast(u64, block.prev) + 32 + block.prev.size) == cast(u64, block)) {
+                block.prev.size = block.prev.size + 32 + block.size;
+                block.prev.next = block.next;
+
+                if (cast(u64, block.next) != 0) {
+                    block.next.prev = block.prev;
+                }
+            }
+        }
+    }
+
+    return;
+}
+
+proc krealloc(ptr: u8*, new_size: u64) -> u8* {
+    if (cast(u64, ptr) == 0) {
+        return kalloc(new_size);
+    }
+
+    if (new_size == 0) {
+        kfree(ptr);
+        return cast(u8*, 0);
+    }
+
+    var block: HeapBlock* = cast(HeapBlock*, cast(u64, ptr) - 32);
+
+    if (block.size >= new_size) {
+        return ptr;
+    }
+
+    var new_ptr: u8* = kalloc(new_size);
+
+    if (cast(u64, new_ptr) == 0) {
+        return cast(u8*, 0);
+    }
+
+    heap_memcpy(new_ptr, ptr, block.size);
+    kfree(ptr);
+
+    return new_ptr;
+}
+
+proc kcalloc(count: u64, size: u64) -> u8* {
+    var total: u64 = count * size;
+    var ptr: u8*   = kalloc(total);
+
+    if (cast(u64, ptr) != 0) {
+        heap_memset(ptr, 0, total);
+    }
+
+    return ptr;
+}
