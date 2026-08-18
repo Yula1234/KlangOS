@@ -13,6 +13,9 @@ CYAN        := \033[0;36m
 GREEN       := \033[0;32m
 RESET       := \033[0m
 
+KL_SRCS     := $(wildcard $(SRC_DIR)/*.kl)
+ENTRY_KL    := $(SRC_DIR)/kernel.kl
+
 OBJS        := $(BUILD_DIR)/boot.o $(BUILD_DIR)/interrupts.o $(BUILD_DIR)/kernel.o
 
 .PHONY: all run clean
@@ -39,10 +42,10 @@ $(BUILD_DIR)/kernel.o: $(BUILD_DIR)/kernel.asm
 	@printf "%b[NASM]%b  $<\n" "$(GREEN)" "$(RESET)"
 	@$(NASM) -f elf64 $< -o $@
 
-$(BUILD_DIR)/kernel.asm: $(SRC_DIR)/kernel.kl $(SRC_DIR)/vga.kl $(SRC_DIR)/multiboot.kl $(SRC_DIR)/gdt.kl $(SRC_DIR)/idt.kl $(SRC_DIR)/isr.kl $(SRC_DIR)/pmm.kl
+$(BUILD_DIR)/kernel.asm: $(KL_SRCS)
 	@mkdir -p $(BUILD_DIR)
-	@printf "%b[KLANG]%b $<\n" "$(GREEN)" "$(RESET)"
-	@$(KLANG) $< -o $@
+	@printf "%b[KLANG]%b $(ENTRY_KL)\n" "$(GREEN)" "$(RESET)"
+	@$(KLANG) $(ENTRY_KL) -o $@
 
 run: all
 	@printf "%b[QEMU]%b  Starting emulator...\n" "$(CYAN)" "$(RESET)"
