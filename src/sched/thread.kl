@@ -1,4 +1,4 @@
-import "mm/heap.kl";
+import "lib/list.kl";
 
 const THREAD_STATE_READY:     u32 = 1;
 const THREAD_STATE_RUNNING:   u32 = 2;
@@ -10,14 +10,14 @@ const THREAD_STACK_SIZE:      u64 = 16384;
 
 
 packed struct Thread {
+    sched_node:  ListNode,
+    wait_node:   ListNode,
     id:          u64,
     rsp:         u64,
     state:       u32,
     stack_base:  u64,
     stack_size:  u64,
     sleep_ticks: u64,
-    next:        Thread*,
-    wait_next:   Thread*,
 
     proc is_ready(t: Thread*) -> bool {
         return t.state == THREAD_STATE_READY;
@@ -52,4 +52,14 @@ packed struct Thread {
 
         return;
     }
+}
+
+
+proc thread_from_sched_node(node: ListNode*) -> Thread* {
+    return cast(Thread*, node);
+}
+
+
+proc thread_from_wait_node(node: ListNode*) -> Thread* {
+    return cast(Thread*, cast(u64, node) - 16);
 }

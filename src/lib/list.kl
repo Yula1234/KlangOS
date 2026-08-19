@@ -1,0 +1,63 @@
+packed struct ListNode {
+    next: ListNode*,
+    prev: ListNode*,
+
+    proc init(node: ListNode*) -> void {
+        node.next = node;
+        node.prev = node;
+
+        return;
+    }
+
+    proc is_empty(node: ListNode*) -> bool {
+        return node.next == node;
+    }
+
+    proc add_tail(head: ListNode*, new_node: ListNode*) -> void {
+        var prev_node: ListNode* = head.prev;
+
+        new_node.next  = head;
+        new_node.prev  = prev_node;
+
+        prev_node.next = new_node;
+        head.prev      = new_node;
+
+        return;
+    }
+
+    proc add_head(head: ListNode*, new_node: ListNode*) -> void {
+        var next_node: ListNode* = head.next;
+
+        new_node.next  = next_node;
+        new_node.prev  = head;
+
+        head.next      = new_node;
+        next_node.prev = new_node;
+
+        return;
+    }
+
+    proc remove(node: ListNode*) -> void {
+        var prev_node: ListNode* = node.prev;
+        var next_node: ListNode* = node.next;
+
+        prev_node.next = next_node;
+        next_node.prev = prev_node;
+
+        node.next      = node;
+        node.prev      = node;
+
+        return;
+    }
+
+    proc pop_head(head: ListNode*) -> ListNode* {
+        if (head.is_empty()) {
+            return cast(ListNode*, 0);
+        }
+
+        var first: ListNode* = head.next;
+        first.remove();
+
+        return first;
+    }
+}

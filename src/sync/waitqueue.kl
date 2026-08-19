@@ -1,58 +1,25 @@
 import "sync/spinlock.kl";
 
+import "lib/list.kl";
+
 import "sched/thread.kl";
 import "sched/sched.kl";
 
 
 packed struct WaitQueue {
-    head: Thread*,
-    tail: Thread*,
+    head: ListNode,
     lock: Spinlock,
 
     proc init(wq: WaitQueue*) -> void {
-        wq.head = cast(Thread*, 0);
-        wq.tail = cast(Thread*, 0);
-        
+        wq.head.init();
         wq.lock.init();
 
         return;
     }
 
-    proc enqueue_unlocked(wq: WaitQueue*, t: Thread*) -> void {
-        t.wait_next = cast(Thread*, 0);
-
-        if (cast(u64, wq.head) == 0) {
-            wq.head = t;
-            wq.tail = t;
-            return;
-        }
-
-        wq.tail.wait_next = t;
-        wq.tail           = t;
-
-        return;
-    }
-
-    proc dequeue_unlocked(wq: WaitQueue*) -> Thread* {
-        if (cast(u64, wq.head) == 0) {
-            return cast(Thread*, 0);
-        }
-
-        var t: Thread* = wq.head;
-
-        wq.head     = t.wait_next;
-        t.wait_next = cast(Thread*, 0);
-
-        if (cast(u64, wq.head) == 0) {
-            wq.tail = cast(Thread*, 0);
-        }
-
-        return t;
-    }
-
     proc is_empty(wq: WaitQueue*) -> bool {
         wq.lock.acquire_irq();
-        var empty: bool = cast(u64, wq.head) == 0;
+        var empty: bool = wq.head.is_empty();
         wq.lock.release_irq();
 
         return empty;
@@ -61,7 +28,7 @@ packed struct WaitQueue {
     proc wait(wq: WaitQueue*) -> void {
         wq.lock.acquire_irq();
 
-        wq.enqueue_unlocked(g_current_thread);
+        wq.head.add_tail(&g_current_thread.wait_node);
         g_current_thread.state = THREAD_STATE_BLOCKED;
 
         wq.lock.release_irq();
@@ -74,9 +41,10 @@ packed struct WaitQueue {
     proc wake_one(wq: WaitQueue*) -> bool {
         wq.lock.acquire_irq();
 
-        var t: Thread* = wq.dequeue_unlocked();
+        var node: ListNode* = wq.head.pop_head();
 
-        if (cast(u64, t) != 0) {
+        if (cast(u64, node) != 0) {
+            var t: Thread* = thread_from_wait_node(node);
             t.state = THREAD_STATE_READY;
             wq.lock.release_irq();
             return true;
@@ -92,13 +60,12 @@ packed struct WaitQueue {
 
         var count: u64 = 0;
 
-        while (cast(u64, wq.head) != 0) {
-            var t: Thread* = wq.dequeue_unlocked();
+        while (!wq.head.is_empty()) {
+            var node: ListNode* = wq.head.pop_head();
+            var t: Thread*      = thread_from_wait_node(node);
 
-            if (cast(u64, t) != 0) {
-                t.state = THREAD_STATE_READY;
-                count   = count + 1;
-            }
+            t.state = THREAD_STATE_READY;
+            count   = count + 1;
         }
 
         wq.lock.release_irq();
