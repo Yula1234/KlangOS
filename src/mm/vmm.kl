@@ -6,27 +6,31 @@ import "lib/mem.kl";
 
 import "pmm.kl";
 
-var g_kernel_pml4: u64*;
+type PhysAddr  = u64;
+type VirtAddr  = u64;
+type PageTable = u64*;
+
+var g_kernel_pml4: PageTable;
 var g_vmm_lock:    Spinlock;
 
-proc vmm_invlpg(virt_addr: u64) -> void {
+proc vmm_invlpg(virt_addr: VirtAddr) -> void {
     asm "invlpg [rdi]";
     return;
 }
 
 
-proc vmm_set_cr3(pml4_phys: u64) -> void {
+proc vmm_set_cr3(pml4_phys: PhysAddr) -> void {
     asm "mov cr3, rdi";
     return;
 }
 
 
-proc vmm_get_cr3() -> u64 {
-    return asm "mov rax, cr3" -> u64;
+proc vmm_get_cr3() -> PhysAddr {
+    return asm "mov rax, cr3" -> PhysAddr;
 }
 
 
-proc vmm_get_or_create_next_table(current_table: u64*, index: u64, flags: u64, create_if_missing: u64) -> u64* {
+proc vmm_get_or_create_next_table(current_table: PageTable, index: u64, flags: u64, create_if_missing: u64) -> PageTable {
     var entry: u64 = current_table[index];
 
     if ((entry & 1) != 0) {
@@ -34,21 +38,21 @@ proc vmm_get_or_create_next_table(current_table: u64*, index: u64, flags: u64, c
             current_table[index] = entry | 4;
         }
 
-        var next_phys: u64 = entry & 0x000FFFFFFFFFF000;
-        return cast(u64*, next_phys);
+        var next_phys: PhysAddr = entry & 0x000FFFFFFFFFF000;
+        return cast(PageTable, next_phys);
     }
 
     if (create_if_missing == 0) {
-        return cast(u64*, 0);
+        return cast(PageTable, 0);
     }
 
-    var new_table_phys: u64 = pmm_alloc_page();
+    var new_table_phys: PhysAddr = pmm_alloc_page();
 
     if (new_table_phys == 0) {
-        return cast(u64*, 0);
+        return cast(PageTable, 0);
     }
 
-    var new_table_ptr: u64* = cast(u64*, new_table_phys);
+    var new_table_ptr: PageTable = cast(PageTable, new_table_phys);
     memzero_page(new_table_ptr);
 
     var entry_flags: u64 = 1 | 2;
@@ -63,28 +67,28 @@ proc vmm_get_or_create_next_table(current_table: u64*, index: u64, flags: u64, c
 }
 
 
-proc vmm_map_page_unlocked(pml4: u64*, virt_addr: u64, phys_addr: u64, flags: u64) -> u64 {
-    var aligned_virt: u64 = virt_addr & 0xFFFFFFFFFFFFF000;
-    var aligned_phys: u64 = phys_addr & 0x000FFFFFFFFFF000;
+proc vmm_map_page_unlocked(pml4: PageTable, virt_addr: VirtAddr, phys_addr: PhysAddr, flags: u64) -> u64 {
+    var aligned_virt: VirtAddr = virt_addr & 0xFFFFFFFFFFFFF000;
+    var aligned_phys: PhysAddr = phys_addr & 0x000FFFFFFFFFF000;
 
-    var pml4_idx: u64     = (aligned_virt >> 39) & 511;
-    var pdpt_idx: u64     = (aligned_virt >> 30) & 511;
-    var pd_idx: u64       = (aligned_virt >> 21) & 511;
-    var pt_idx: u64       = (aligned_virt >> 12) & 511;
+    var pml4_idx: u64 = (aligned_virt >> 39) & 511;
+    var pdpt_idx: u64 = (aligned_virt >> 30) & 511;
+    var pd_idx: u64   = (aligned_virt >> 21) & 511;
+    var pt_idx: u64   = (aligned_virt >> 12) & 511;
 
-    var pdpt: u64*        = vmm_get_or_create_next_table(pml4, pml4_idx, flags, 1);
+    var pdpt: PageTable = vmm_get_or_create_next_table(pml4, pml4_idx, flags, 1);
 
     if (cast(u64, pdpt) == 0) {
         return 0;
     }
 
-    var pd: u64*          = vmm_get_or_create_next_table(pdpt, pdpt_idx, flags, 1);
+    var pd: PageTable = vmm_get_or_create_next_table(pdpt, pdpt_idx, flags, 1);
 
     if (cast(u64, pd) == 0) {
         return 0;
     }
 
-    var pt: u64*          = vmm_get_or_create_next_table(pd, pd_idx, flags, 1);
+    var pt: PageTable = vmm_get_or_create_next_table(pd, pd_idx, flags, 1);
 
     if (cast(u64, pt) == 0) {
         return 0;
@@ -98,7 +102,7 @@ proc vmm_map_page_unlocked(pml4: u64*, virt_addr: u64, phys_addr: u64, flags: u6
 }
 
 
-proc vmm_map_page(pml4: u64*, virt_addr: u64, phys_addr: u64, flags: u64) -> u64 {
+proc vmm_map_page(pml4: PageTable, virt_addr: VirtAddr, phys_addr: PhysAddr, flags: u64) -> u64 {
     g_vmm_lock.acquire_irq();
     defer g_vmm_lock.release_irq();
 
@@ -106,27 +110,27 @@ proc vmm_map_page(pml4: u64*, virt_addr: u64, phys_addr: u64, flags: u64) -> u64
 }
 
 
-proc vmm_unmap_page_unlocked(pml4: u64*, virt_addr: u64) -> void {
-    var aligned_virt: u64 = virt_addr & 0xFFFFFFFFFFFFF000;
+proc vmm_unmap_page_unlocked(pml4: PageTable, virt_addr: VirtAddr) -> void {
+    var aligned_virt: VirtAddr = virt_addr & 0xFFFFFFFFFFFFF000;
 
-    var pml4_idx: u64     = (aligned_virt >> 39) & 511;
-    var pdpt_idx: u64     = (aligned_virt >> 30) & 511;
-    var pd_idx: u64       = (aligned_virt >> 21) & 511;
-    var pt_idx: u64       = (aligned_virt >> 12) & 511;
+    var pml4_idx: u64 = (aligned_virt >> 39) & 511;
+    var pdpt_idx: u64 = (aligned_virt >> 30) & 511;
+    var pd_idx: u64   = (aligned_virt >> 21) & 511;
+    var pt_idx: u64   = (aligned_virt >> 12) & 511;
 
-    var pdpt: u64*        = vmm_get_or_create_next_table(pml4, pml4_idx, 0, 0);
+    var pdpt: PageTable = vmm_get_or_create_next_table(pml4, pml4_idx, 0, 0);
 
     if (cast(u64, pdpt) == 0) {
         return;
     }
 
-    var pd: u64*          = vmm_get_or_create_next_table(pdpt, pdpt_idx, 0, 0);
+    var pd: PageTable = vmm_get_or_create_next_table(pdpt, pdpt_idx, 0, 0);
 
     if (cast(u64, pd) == 0) {
         return;
     }
 
-    var pt: u64*          = vmm_get_or_create_next_table(pd, pd_idx, 0, 0);
+    var pt: PageTable = vmm_get_or_create_next_table(pd, pd_idx, 0, 0);
 
     if (cast(u64, pt) == 0) {
         return;
@@ -140,7 +144,7 @@ proc vmm_unmap_page_unlocked(pml4: u64*, virt_addr: u64) -> void {
 }
 
 
-proc vmm_unmap_page(pml4: u64*, virt_addr: u64) -> void {
+proc vmm_unmap_page(pml4: PageTable, virt_addr: VirtAddr) -> void {
     g_vmm_lock.acquire_irq();
     defer g_vmm_lock.release_irq();
 
@@ -150,37 +154,37 @@ proc vmm_unmap_page(pml4: u64*, virt_addr: u64) -> void {
 }
 
 
-proc vmm_virt_to_phys(pml4: u64*, virt_addr: u64) -> u64 {
-    var aligned_virt: u64 = virt_addr & 0xFFFFFFFFFFFFF000;
-    var page_offset: u64  = virt_addr & 4095;
+proc vmm_virt_to_phys(pml4: PageTable, virt_addr: VirtAddr) -> PhysAddr {
+    var aligned_virt: VirtAddr = virt_addr & 0xFFFFFFFFFFFFF000;
+    var page_offset: u64       = virt_addr & 4095;
 
-    var pml4_idx: u64     = (aligned_virt >> 39) & 511;
-    var pdpt_idx: u64     = (aligned_virt >> 30) & 511;
-    var pd_idx: u64       = (aligned_virt >> 21) & 511;
-    var pt_idx: u64       = (aligned_virt >> 12) & 511;
+    var pml4_idx: u64 = (aligned_virt >> 39) & 511;
+    var pdpt_idx: u64 = (aligned_virt >> 30) & 511;
+    var pd_idx: u64   = (aligned_virt >> 21) & 511;
+    var pt_idx: u64   = (aligned_virt >> 12) & 511;
 
     g_vmm_lock.acquire_irq();
     defer g_vmm_lock.release_irq();
 
-    var pdpt: u64*        = vmm_get_or_create_next_table(pml4, pml4_idx, 0, 0);
+    var pdpt: PageTable = vmm_get_or_create_next_table(pml4, pml4_idx, 0, 0);
 
     if (cast(u64, pdpt) == 0) {
         return 0;
     }
 
-    var pd: u64*          = vmm_get_or_create_next_table(pdpt, pdpt_idx, 0, 0);
+    var pd: PageTable = vmm_get_or_create_next_table(pdpt, pdpt_idx, 0, 0);
 
     if (cast(u64, pd) == 0) {
         return 0;
     }
 
-    var pt: u64*          = vmm_get_or_create_next_table(pd, pd_idx, 0, 0);
+    var pt: PageTable = vmm_get_or_create_next_table(pd, pd_idx, 0, 0);
 
     if (cast(u64, pt) == 0) {
         return 0;
     }
 
-    var entry: u64        = pt[pt_idx];
+    var entry: u64 = pt[pt_idx];
 
     if ((entry & 1) == 0) {
         return 0;
@@ -190,7 +194,7 @@ proc vmm_virt_to_phys(pml4: u64*, virt_addr: u64) -> u64 {
 }
 
 
-proc vmm_map_range(pml4: u64*, virt_start: u64, phys_start: u64, size: u64, flags: u64) -> u64 {
+proc vmm_map_range(pml4: PageTable, virt_start: VirtAddr, phys_start: PhysAddr, size: u64, flags: u64) -> u64 {
     g_vmm_lock.acquire_irq();
     defer g_vmm_lock.release_irq();
 
@@ -210,11 +214,11 @@ proc vmm_map_range(pml4: u64*, virt_start: u64, phys_start: u64, size: u64, flag
 }
 
 
-proc vmm_init(kernel_end: u64) -> u64* {
+proc vmm_init(kernel_end: VirtAddr) -> PageTable {
     g_vmm_lock.init();
 
-    var pml4_phys: u64   = pmm_alloc_page();
-    var pml4_ptr: u64*   = cast(u64*, pml4_phys);
+    var pml4_phys: PhysAddr = pmm_alloc_page();
+    var pml4_ptr: PageTable = cast(PageTable, pml4_phys);
 
     memzero_page(pml4_ptr);
 
