@@ -31,9 +31,7 @@ proc idt_set_gate(num: u8, handler: u64, selector: u16, flags: u8, ist: u8) -> v
 }
 
 proc idt_init(stub_table: u64*) -> void {
-    var i: u64 = 0;
-
-    while (i < 256) {
+    for (var i: u64 = 0; i < 256; i += 1) {
         var ist_idx: u8 = 0;
 
         if (i == 8) {
@@ -41,10 +39,9 @@ proc idt_init(stub_table: u64*) -> void {
         }
 
         idt_set_gate(cast(u8, i), stub_table[i], 0x08, 0x8E, ist_idx);
-        i += 1;
     }
 
-    g_idt_ptr.limit = cast(u16, (256 * 16) - 1);
+    g_idt_ptr.limit = cast(u16, (256 * sizeof(IdtEntry)) - 1);
     g_idt_ptr.base  = cast(u64, &g_idt[0]);
 
     asm "lea rax, [rel g_idt_ptr]";

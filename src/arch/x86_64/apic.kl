@@ -305,11 +305,8 @@ proc ioapic_init() -> void {
     var ver_reg: u32 = ioapic_read(IOAPIC_VERSION);
     g_ioapic_max_redirections = ((ver_reg >> 16) & 0xFF) + 1;
 
-    var i: u8 = 0;
-
-    while (i < cast(u8, g_ioapic_max_redirections)) {
+    for (var i: u8 = 0; i < cast(u8, g_ioapic_max_redirections); i += 1) {
         ioapic_set_entry(i, 0x00010000 | (32 + cast(u32, i)), 0);
-        i += 1;
     }
 
     return;

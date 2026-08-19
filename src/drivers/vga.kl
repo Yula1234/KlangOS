@@ -15,11 +15,9 @@ proc vga_init() -> void {
 proc vga_clear_unlocked(color: u8) -> void {
     var vga: u16*  = cast(u16*, 0x000B8000);
     var blank: u16 = (cast(u16, color) << 8) | 32;
-    var i: u64     = 0;
 
-    while (i < 80 * 25) {
+    for (var i: u64 = 0; i < 80 * 25; i += 1) {
         vga[i] = blank;
-        i += 1;
     }
 
     return;
@@ -28,7 +26,9 @@ proc vga_clear_unlocked(color: u8) -> void {
 
 proc vga_clear(color: u8) -> void {
     g_vga_lock.acquire_irq();
+
     vga_clear_unlocked(color);
+    
     g_vga_lock.release_irq();
 
     return;
@@ -38,11 +38,9 @@ proc vga_clear(color: u8) -> void {
 proc vga_print_unlocked(str: char*, color: u8, line: u64, col: u64) -> void {
     var vga: u16*   = cast(u16*, 0x000B8000);
     var offset: u64 = line * 80 + col;
-    var i: u64      = 0;
 
-    while (str[i] != cast(char, 0)) {
+    for (var i: u64 = 0; str[i] != cast(char, 0); i += 1) {
         vga[offset + i] = (cast(u16, color) << 8) | cast(u16, cast(u8, str[i]));
-        i += 1;
     }
 
     return;
@@ -51,7 +49,9 @@ proc vga_print_unlocked(str: char*, color: u8, line: u64, col: u64) -> void {
 
 proc vga_print(str: char*, color: u8, line: u64, col: u64) -> void {
     g_vga_lock.acquire_irq();
+
     vga_print_unlocked(str, color, line, col);
+    
     g_vga_lock.release_irq();
 
     return;
@@ -60,14 +60,19 @@ proc vga_print(str: char*, color: u8, line: u64, col: u64) -> void {
 
 proc vga_print_dec_unlocked(val: u64, color: u8, line: u64, col: u64) -> void {
     var buf: [24]char;
+
     itoa_dec(val, &buf[0]);
+    
     vga_print_unlocked(&buf[0], color, line, col);
+    
     return;
 }
 
 proc vga_print_dec(val: u64, color: u8, line: u64, col: u64) -> void {
     g_vga_lock.acquire_irq();
+
     vga_print_dec_unlocked(val, color, line, col);
+    
     g_vga_lock.release_irq();
 
     return;
@@ -76,15 +81,20 @@ proc vga_print_dec(val: u64, color: u8, line: u64, col: u64) -> void {
 
 proc vga_print_hex_unlocked(val: u64, color: u8, line: u64, col: u64) -> void {
     var buf: [19]char;
+
     itoa_hex(val, &buf[0], true);
+    
     vga_print_unlocked(&buf[0], color, line, col);
+    
     return;
 }
 
 
 proc vga_print_hex(val: u64, color: u8, line: u64, col: u64) -> void {
     g_vga_lock.acquire_irq();
+
     vga_print_hex_unlocked(val, color, line, col);
+    
     g_vga_lock.release_irq();
 
     return;

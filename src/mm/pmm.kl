@@ -48,9 +48,8 @@ proc pmm_test_bit(frame_idx: u64) -> u64 {
 proc pmm_init_region(base: u64, length: u64) -> void {
     var align_base: u64 = (base + 4095) / 4096;
     var count: u64      = length / 4096;
-    var i: u64          = 0;
 
-    while (i < count) {
+    for (var i: u64 = 0; i < count; i += 1) {
         var frame: u64 = align_base + i;
 
         if (frame < g_pmm_max_frames) {
@@ -58,8 +57,6 @@ proc pmm_init_region(base: u64, length: u64) -> void {
             g_pmm_used_pages = g_pmm_used_pages - 1;
             g_pmm_free_pages = g_pmm_free_pages + 1;
         }
-
-        i += 1;
     }
 
     return;
@@ -69,9 +66,8 @@ proc pmm_init_region(base: u64, length: u64) -> void {
 proc pmm_deinit_region(base: u64, length: u64) -> void {
     var align_base: u64 = base / 4096;
     var count: u64      = (length + 4095) / 4096;
-    var i: u64          = 0;
 
-    while (i < count) {
+    for (var i: u64 = 0; i < count; i += 1) {
         var frame: u64 = align_base + i;
 
         if (frame < g_pmm_max_frames) {
@@ -81,8 +77,6 @@ proc pmm_deinit_region(base: u64, length: u64) -> void {
                 g_pmm_free_pages = g_pmm_free_pages - 1;
             }
         }
-
-        i += 1;
     }
 
     return;
@@ -97,11 +91,8 @@ proc pmm_init(mbi: MultibootInfo*, kernel_end: u64) -> void {
     g_pmm_used_pages  = g_pmm_max_frames;
     g_pmm_free_pages  = 0;
 
-    var w: u64 = 0;
-
-    while (w < 16384) {
+    for (var w: u64 = 0; w < 16384; w += 1) {
         g_pmm_bitmap[w] = 0xFFFFFFFFFFFFFFFF;
-        w += 1;
     }
 
     var current_addr: u64 = cast(u64, mbi.mmap_addr);
@@ -128,16 +119,13 @@ proc pmm_init(mbi: MultibootInfo*, kernel_end: u64) -> void {
 }
 
 
+
 proc pmm_alloc_page() -> u64 {
     g_pmm_lock.acquire_irq();
 
-    var w: u64 = 0;
-
-    while (w < 16384) {
+    for (var w: u64 = 0; w < 16384; w += 1) {
         if (g_pmm_bitmap[w] != 0xFFFFFFFFFFFFFFFF) {
-            var b: u64 = 0;
-
-            while (b < 64) {
+            for (var b: u64 = 0; b < 64; b += 1) {
                 var mask: u64 = cast(u64, 1) << b;
 
                 if ((g_pmm_bitmap[w] & mask) == 0) {
@@ -152,12 +140,8 @@ proc pmm_alloc_page() -> u64 {
 
                     return frame_idx * 4096;
                 }
-
-                b += 1;
             }
         }
-
-        w += 1;
     }
 
     g_pmm_lock.release_irq();
