@@ -23,18 +23,20 @@ packed struct GdtPointer {
     base:  u64
 }
 
-var g_gdt: [7]u64;
-var g_tss: TSS;
-var g_gdt_ptr: GdtPointer;
+var g_gdt:      [7]u64;
+var g_tss:      TSS;
+var g_gdt_ptr:  GdtPointer;
+var g_df_stack: [4096]u8;
 
 proc gdt_init(kernel_stack_top: u64) -> void {
     memzero(cast(u8*, &g_tss), 104);
 
-    g_tss.rsp0 = kernel_stack_top;
+    g_tss.rsp0       = kernel_stack_top;
+    g_tss.ist1       = (cast(u64, &g_df_stack[0]) + 4096) & ~15;
     g_tss.iomap_base = 104;
 
-    var tss_base = cast(u64, &g_tss);
-    var tss_size = 104 - 1;
+    var tss_base: u64 = cast(u64, &g_tss);
+    var tss_size: u64 = 104 - 1;
 
     g_gdt[0] = 0x0000000000000000;
     g_gdt[1] = 0x00209A0000000000;
@@ -42,7 +44,7 @@ proc gdt_init(kernel_stack_top: u64) -> void {
     g_gdt[3] = 0x0000F20000000000;
     g_gdt[4] = 0x0020FA0000000000;
 
-    var tss_low: u64 = (cast(u64, tss_size) & 0xFFFF) |
+    var tss_low: u64 = (tss_size & 0xFFFF) |
                        ((tss_base & 0x00FFFFFF) << 16) |
                        (cast(u64, 0x89) << 40) |
                        ((tss_base & 0xFF000000) << 32);
