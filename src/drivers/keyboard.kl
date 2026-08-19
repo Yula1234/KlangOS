@@ -1,6 +1,6 @@
-import "io.kl";
-import "sync/spinlock.kl";
+import "arch/x86_64/io.kl";
 
+import "sync/spinlock.kl";
 
 var g_kbd_buffer: [128]char;
 var g_kbd_head:   u32;

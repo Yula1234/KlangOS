@@ -1,8 +1,9 @@
-import "vga.kl";
-import "apic.kl";
-import "keyboard.kl";
-import "sched.kl";
+import "drivers/keyboard.kl";
+import "drivers/vga.kl";
 
+import "sched/sched.kl";
+
+import "apic.kl";
 
 packed struct InterruptFrame {
     r15:      u64,

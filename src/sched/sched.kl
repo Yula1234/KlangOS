@@ -1,7 +1,10 @@
-import "mm/heap.kl";
-import "thread.kl";
-import "isr.kl";
+import "arch/x86_64/isr.kl";
+
 import "sync/spinlock.kl";
+
+import "mm/heap.kl";
+
+import "thread.kl";
 
 
 var g_thread_list_head: Thread*;

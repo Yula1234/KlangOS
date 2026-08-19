@@ -1,5 +1,7 @@
+import "boot/multiboot.kl";
+
 import "sync/spinlock.kl";
-import "multiboot.kl";
+
 import "pmm.kl";
 
 var g_kernel_pml4: u64*;

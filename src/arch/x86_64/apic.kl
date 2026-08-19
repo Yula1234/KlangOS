@@ -1,7 +1,8 @@
 import "sync/spinlock.kl";
-import "mm/vmm.kl";
-import "io.kl";
 
+import "mm/vmm.kl";
+
+import "io.kl";
 
 const MSR_APIC_BASE:            u32 = 0x0000001B;
 const APIC_BASE_MASK:           u64 = 0x000FFFFFFFFFF000;

@@ -1,17 +1,20 @@
-import "vga.kl";
-import "multiboot.kl";
-import "gdt.kl";
-import "idt.kl";
-import "isr.kl";
+import "arch/x86_64/apic.kl";
+import "arch/x86_64/gdt.kl";
+import "arch/x86_64/idt.kl";
+import "arch/x86_64/isr.kl";
+import "arch/x86_64/io.kl";
+
+import "drivers/keyboard.kl";
+import "drivers/vga.kl";
+
+import "sched/thread.kl";
+import "sched/sched.kl";
+
+import "boot/multiboot.kl";
+
 import "mm/pmm.kl";
 import "mm/vmm.kl";
 import "mm/heap.kl";
-import "io.kl";
-import "apic.kl";
-import "keyboard.kl";
-import "thread.kl";
-import "sched.kl";
-
 
 proc task_worker_a(arg: u64) -> void {
     var counter: u64 = 0;
