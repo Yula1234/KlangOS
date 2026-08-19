@@ -1,49 +1,30 @@
-proc atomic_xchg_32(ptr: u32*, val: u32) -> u32 {
-    asm "mov eax, esi";
-    return asm "xchg [rdi], eax" -> u32;
-}
+import "arch/x86_64/cpu.kl";
 
-
-proc cpu_save_flags_and_cli() -> u64 {
-    asm "pushfq";
-    return asm "pop rax\n    cli" -> u64;
-}
-
-
-proc cpu_restore_flags(flags: u64) -> void {
-    asm "push rdi";
-    asm "popfq";
-
-    return;
-}
-
+import "sync/atomic.kl";
 
 packed struct Spinlock {
-    locked:     u32,
-    rflags:     u64,
+    locked: Atomic,
+    rflags: u64,
 
     proc init(s: Spinlock*) -> void {
-        s.locked     = 0;
-        s.rflags     = 0;
+        s.locked.init(0);
+        s.rflags = 0;
 
         return;
     }
 
     proc is_locked(s: Spinlock*) -> bool {
-        return s.locked != 0;
+        return s.locked.get() != 0;
     }
 
     proc try_acquire(s: Spinlock*) -> bool {
-        var ptr: u32* = &s.locked;
-        var old_val: u32 = atomic_xchg_32(ptr, 1);
-
-        return old_val == 0;
+        return s.locked.xchg(1) == 0;
     }
 
     proc acquire(s: Spinlock*) -> void {
         while (!s.try_acquire()) {
-            while (s.locked != 0) {
-                asm "pause";
+            while (s.is_locked()) {
+                cpu_pause();
             }
         }
 
@@ -51,8 +32,7 @@ packed struct Spinlock {
     }
 
     proc release(s: Spinlock*) -> void {
-        var ptr: u32* = &s.locked;
-        atomic_xchg_32(ptr, 0);
+        s.locked.set(0);
 
         return;
     }
@@ -61,8 +41,8 @@ packed struct Spinlock {
         var flags: u64 = cpu_save_flags_and_cli();
 
         while (!s.try_acquire()) {
-            while (s.locked != 0) {
-                asm "pause";
+            while (s.is_locked()) {
+                cpu_pause();
             }
         }
 
@@ -74,8 +54,7 @@ packed struct Spinlock {
     proc release_irq(s: Spinlock*) -> void {
         var saved_flags: u64 = s.rflags;
 
-        var ptr: u32* = &s.locked;
-        atomic_xchg_32(ptr, 0);
+        s.locked.set(0);
 
         cpu_restore_flags(saved_flags);
 

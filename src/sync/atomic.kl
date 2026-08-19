@@ -1,0 +1,98 @@
+proc atomic_xchg_32(ptr: u32*, val: u32) -> u32 {
+    asm "mov eax, esi";
+    return asm "xchg [rdi], eax" -> u32;
+}
+
+
+proc atomic_xchg_64(ptr: u64*, val: u64) -> u64 {
+    asm "mov rax, rsi";
+    return asm "xchg [rdi], rax" -> u64;
+}
+
+
+proc atomic_cas_32(ptr: u32*, expected: u32, desired: u32) -> u32 {
+    asm "mov eax, esi";
+    asm "mov edx, edx";
+    return asm "lock cmpxchg [rdi], edx" -> u32;
+}
+
+
+proc atomic_add_32(ptr: u32*, val: u32) -> u32 {
+    asm "mov eax, esi";
+    return asm "lock xadd [rdi], eax" -> u32;
+}
+
+
+proc atomic_inc_32(ptr: u32*) -> void {
+    asm "lock inc dword [rdi]";
+    return;
+}
+
+
+proc atomic_dec_32(ptr: u32*) -> void {
+    asm "lock dec dword [rdi]";
+    return;
+}
+
+packed struct Atomic {
+    value: i32,
+
+    proc init(a: Atomic*, val: i32) -> void {
+        a.value = val;
+
+        return;
+    }
+
+    proc get(a: Atomic*) -> i32 {
+        return a.value;
+    }
+
+    proc set(a: Atomic*, val: i32) -> void {
+        a.value = val;
+
+        return;
+    }
+
+    proc xchg(a: Atomic*, val: i32) -> i32 {
+        asm "mov eax, esi";
+        return asm "xchg [rdi], eax" -> i32;
+    }
+
+    proc cas(a: Atomic*, expected: i32, desired: i32) -> i32 {
+        asm "mov eax, esi";
+        return asm "lock cmpxchg [rdi], edx" -> i32;
+    }
+
+    proc add(a: Atomic*, val: i32) -> i32 {
+        asm "mov eax, esi";
+        return asm "lock xadd [rdi], eax" -> i32;
+    }
+
+    proc sub(a: Atomic*, val: i32) -> i32 {
+        asm "mov eax, esi";
+        asm "neg eax";
+        return asm "lock xadd [rdi], eax" -> i32;
+    }
+
+    proc inc(a: Atomic*) -> void {
+        asm "lock inc dword [rdi]";
+
+        return;
+    }
+
+    proc dec(a: Atomic*) -> void {
+        asm "lock dec dword [rdi]";
+
+        return;
+    }
+
+    proc dec_and_test(a: Atomic*) -> bool {
+        asm "lock dec dword [rdi]";
+        return asm "sete al" -> bool;
+    }
+
+    proc inc_and_test(a: Atomic*) -> bool {
+        asm "lock inc dword [rdi]";
+        return asm "sete al" -> bool;
+    }
+}

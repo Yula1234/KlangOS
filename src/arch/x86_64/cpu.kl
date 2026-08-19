@@ -1,0 +1,43 @@
+proc cpu_save_flags_and_cli() -> u64 {
+    asm "pushfq";
+    return asm "pop rax\n    cli" -> u64;
+}
+
+
+proc cpu_restore_flags(flags: u64) -> void {
+    asm "push rdi";
+    asm "popfq";
+
+    return;
+}
+
+
+proc cpu_cli() -> void {
+    asm "cli";
+    return;
+}
+
+
+proc cpu_sti() -> void {
+    asm "sti";
+    return;
+}
+
+
+proc cpu_pause() -> void {
+    asm "pause";
+    return;
+}
+
+
+proc cpu_hlt() -> void {
+    asm "hlt";
+    return;
+}
+
+
+proc cpu_rdtsc() -> u64 {
+    asm "rdtsc";
+    asm "shl rdx, 32";
+    return asm "or rax, rdx" -> u64;
+}
