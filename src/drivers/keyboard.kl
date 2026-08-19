@@ -61,9 +61,8 @@ proc keyboard_getchar() -> char {
             return c;
         }
 
-        g_kbd_lock.release_irq();
-
-        asm "hlt";
+        g_kbd_lock.release();
+        cpu_sti_and_hlt();
     }
 
     return cast(char, 0);
