@@ -16,6 +16,7 @@ import "mm/pmm.kl";
 import "mm/vmm.kl";
 import "mm/heap.kl";
 
+
 proc task_worker_a(arg: u64) -> void {
     var counter: u64 = 0;
 
@@ -32,20 +33,15 @@ proc task_worker_a(arg: u64) -> void {
 
 
 proc task_worker_b(arg: u64) -> void {
-    var step: u64 = 0;
-    var anim: char* = "|/-\\";
+    var step: u64    = 0;
+    var anim: []char = "|/-\\";
 
     vga_print("Task B (Spinner) : [ ]", 0x1F, 22, 4);
 
     while (1) {
         var char_idx: u64 = step & 3;
-        var glyph: char = anim[char_idx];
 
-        var single_buf: [2]char;
-        single_buf[0] = glyph;
-        single_buf[1] = cast(char, 0);
-
-        vga_print(&single_buf[0], 0x1A, 22, 24);
+        vga_print(anim[char_idx..(char_idx + 1)], 0x1A, 22, 24);
 
         step = step + 1;
         thread_sleep(5);
@@ -141,31 +137,26 @@ proc kmain(magic: u32, mbi: MultibootInfo*) -> void {
     var input_col: u64 = 23;
 
     while (1) {
-        var c: char  = keyboard_getchar();
-        var code: u8 = cast(u8, c);
+        var c: char = keyboard_getchar();
 
-        switch (code) {
+        switch (cast(u8, c)) {
             case 8: {
                 if (input_col > 23) {
                     input_col = input_col - 1;
-                    vga_print(" ", 0x1F, 24, input_col);
+                    vga_print_char(cast(char, 32), 0x1F, 24, input_col);
                 }
             }
 
             case 10: {
                 while (input_col > 23) {
                     input_col = input_col - 1;
-                    vga_print(" ", 0x1F, 24, input_col);
+                    vga_print_char(cast(char, 32), 0x1F, 24, input_col);
                 }
             }
 
             default: {
                 if (input_col < 78) {
-                    var single_buf: [2]char;
-                    single_buf[0] = c;
-                    single_buf[1] = cast(char, 0);
-
-                    vga_print(&single_buf[0], 0x1F, 24, input_col);
+                    vga_print_char(c, 0x1F, 24, input_col);
                     input_col = input_col + 1;
                 }
             }
