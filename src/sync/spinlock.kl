@@ -1,10 +1,3 @@
-packed struct Spinlock {
-    locked:     u32,
-    rflags:     u64,
-    holder_tid: u64
-}
-
-
 proc atomic_xchg_32(ptr: u32*, val: u32) -> u32 {
     asm "mov eax, esi";
     return asm "xchg [rdi], eax" -> u32;
@@ -25,69 +18,67 @@ proc cpu_restore_flags(flags: u64) -> void {
 }
 
 
-proc Spinlock_init(s: Spinlock*) -> void {
-    s.locked     = 0;
-    s.rflags     = 0;
-    s.holder_tid = 0;
+packed struct Spinlock {
+    locked:     u32,
+    rflags:     u64,
 
-    return;
-}
+    proc init(s: Spinlock*) -> void {
+        s.locked     = 0;
+        s.rflags     = 0;
 
-
-proc Spinlock_is_locked(s: Spinlock*) -> bool {
-    return s.locked != 0;
-}
-
-
-proc Spinlock_try_acquire(s: Spinlock*) -> bool {
-    var ptr: u32* = &s.locked;
-    var old_val: u32 = atomic_xchg_32(ptr, 1);
-
-    return old_val == 0;
-}
-
-
-proc Spinlock_acquire(s: Spinlock*) -> void {
-    while (!s.try_acquire()) {
-        while (s.locked != 0) {
-            asm "pause";
-        }
+        return;
     }
 
-    return;
-}
-
-
-proc Spinlock_release(s: Spinlock*) -> void {
-    var ptr: u32* = &s.locked;
-    atomic_xchg_32(ptr, 0);
-
-    return;
-}
-
-
-proc Spinlock_acquire_irq(s: Spinlock*) -> void {
-    var flags: u64 = cpu_save_flags_and_cli();
-
-    while (!s.try_acquire()) {
-        while (s.locked != 0) {
-            asm "pause";
-        }
+    proc is_locked(s: Spinlock*) -> bool {
+        return s.locked != 0;
     }
 
-    s.rflags = flags;
+    proc try_acquire(s: Spinlock*) -> bool {
+        var ptr: u32* = &s.locked;
+        var old_val: u32 = atomic_xchg_32(ptr, 1);
 
-    return;
-}
+        return old_val == 0;
+    }
 
+    proc acquire(s: Spinlock*) -> void {
+        while (!s.try_acquire()) {
+            while (s.locked != 0) {
+                asm "pause";
+            }
+        }
 
-proc Spinlock_release_irq(s: Spinlock*) -> void {
-    var saved_flags: u64 = s.rflags;
+        return;
+    }
 
-    var ptr: u32* = &s.locked;
-    atomic_xchg_32(ptr, 0);
+    proc release(s: Spinlock*) -> void {
+        var ptr: u32* = &s.locked;
+        atomic_xchg_32(ptr, 0);
 
-    cpu_restore_flags(saved_flags);
+        return;
+    }
 
-    return;
+    proc acquire_irq(s: Spinlock*) -> void {
+        var flags: u64 = cpu_save_flags_and_cli();
+
+        while (!s.try_acquire()) {
+            while (s.locked != 0) {
+                asm "pause";
+            }
+        }
+
+        s.rflags = flags;
+
+        return;
+    }
+
+    proc release_irq(s: Spinlock*) -> void {
+        var saved_flags: u64 = s.rflags;
+
+        var ptr: u32* = &s.locked;
+        atomic_xchg_32(ptr, 0);
+
+        cpu_restore_flags(saved_flags);
+
+        return;
+    }
 }

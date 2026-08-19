@@ -1,6 +1,6 @@
-import "io.kl";
-import "vmm.kl";
 import "sync/spinlock.kl";
+import "mm/vmm.kl";
+import "io.kl";
 
 
 const MSR_APIC_BASE:            u32 = 0x0000001B;

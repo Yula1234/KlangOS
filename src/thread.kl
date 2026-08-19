@@ -1,5 +1,4 @@
-import "heap.kl";
-
+import "mm/heap.kl";
 
 const THREAD_STATE_READY:     u32 = 1;
 const THREAD_STATE_RUNNING:   u32 = 2;
@@ -17,46 +16,39 @@ packed struct Thread {
     stack_base:  u64,
     stack_size:  u64,
     sleep_ticks: u64,
-    next:        Thread*
-}
+    next:        Thread*,
 
+    proc is_ready(t: Thread*) -> bool {
+        return t.state == THREAD_STATE_READY;
+    }
 
-proc Thread_is_ready(t: Thread*) -> bool {
-    return t.state == THREAD_STATE_READY;
-}
+    proc is_running(t: Thread*) -> bool {
+        return t.state == THREAD_STATE_RUNNING;
+    }
 
+    proc is_sleeping(t: Thread*) -> bool {
+        return t.state == THREAD_STATE_SLEEPING;
+    }
 
-proc Thread_is_running(t: Thread*) -> bool {
-    return t.state == THREAD_STATE_RUNNING;
-}
+    proc is_dead(t: Thread*) -> bool {
+        return t.state == THREAD_STATE_DEAD;
+    }
 
+    proc block(t: Thread*) -> void {
+        t.state = THREAD_STATE_BLOCKED;
 
-proc Thread_is_sleeping(t: Thread*) -> bool {
-    return t.state == THREAD_STATE_SLEEPING;
-}
+        return;
+    }
 
+    proc unblock(t: Thread*) -> void {
+        t.state = THREAD_STATE_READY;
 
-proc Thread_is_dead(t: Thread*) -> bool {
-    return t.state == THREAD_STATE_DEAD;
-}
+        return;
+    }
 
+    proc terminate(t: Thread*) -> void {
+        t.state = THREAD_STATE_DEAD;
 
-proc Thread_block(t: Thread*) -> void {
-    t.state = THREAD_STATE_BLOCKED;
-
-    return;
-}
-
-
-proc Thread_unblock(t: Thread*) -> void {
-    t.state = THREAD_STATE_READY;
-
-    return;
-}
-
-
-proc Thread_terminate(t: Thread*) -> void {
-    t.state = THREAD_STATE_DEAD;
-
-    return;
+        return;
+    }
 }

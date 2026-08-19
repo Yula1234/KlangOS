@@ -1,6 +1,6 @@
+import "../sync/spinlock.kl";
 import "vmm.kl";
 import "pmm.kl";
-import "sync/spinlock.kl";
 
 
 packed struct HeapBlock {
