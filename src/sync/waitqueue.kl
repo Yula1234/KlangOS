@@ -4,37 +4,31 @@ import "sched/thread.kl";
 import "sched/sched.kl";
 
 
-packed struct WaitNode {
-    thread: Thread*,
-    next:   WaitNode*
-}
-
-
 packed struct WaitQueue {
-    head: WaitNode*,
-    tail: WaitNode*,
+    head: Thread*,
+    tail: Thread*,
     lock: Spinlock,
 
     proc init(wq: WaitQueue*) -> void {
-        wq.head = cast(WaitNode*, 0);
-        wq.tail = cast(WaitNode*, 0);
+        wq.head = cast(Thread*, 0);
+        wq.tail = cast(Thread*, 0);
         
         wq.lock.init();
 
         return;
     }
 
-    proc enqueue_unlocked(wq: WaitQueue*, node: WaitNode*) -> void {
-        node.next = cast(WaitNode*, 0);
+    proc enqueue_unlocked(wq: WaitQueue*, t: Thread*) -> void {
+        t.wait_next = cast(Thread*, 0);
 
         if (cast(u64, wq.head) == 0) {
-            wq.head = node;
-            wq.tail = node;
+            wq.head = t;
+            wq.tail = t;
             return;
         }
 
-        wq.tail.next = node;
-        wq.tail      = node;
+        wq.tail.wait_next = t;
+        wq.tail           = t;
 
         return;
     }
@@ -44,13 +38,13 @@ packed struct WaitQueue {
             return cast(Thread*, 0);
         }
 
-        var node: WaitNode* = wq.head;
-        var t: Thread*      = node.thread;
+        var t: Thread* = wq.head;
 
-        wq.head = node.next;
+        wq.head     = t.wait_next;
+        t.wait_next = cast(Thread*, 0);
 
         if (cast(u64, wq.head) == 0) {
-            wq.tail = cast(WaitNode*, 0);
+            wq.tail = cast(Thread*, 0);
         }
 
         return t;
@@ -65,15 +59,9 @@ packed struct WaitQueue {
     }
 
     proc wait(wq: WaitQueue*) -> void {
-        var node: WaitNode;
-
-        node.thread = g_current_thread;
-        node.next   = cast(WaitNode*, 0);
-
         wq.lock.acquire_irq();
 
-        wq.enqueue_unlocked(&node);
-
+        wq.enqueue_unlocked(g_current_thread);
         g_current_thread.state = THREAD_STATE_BLOCKED;
 
         wq.lock.release_irq();

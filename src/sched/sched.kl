@@ -97,6 +97,7 @@ proc sched_init() -> void {
     idle.stack_size      = 0;
     idle.sleep_ticks     = 0;
     idle.next            = cast(Thread*, 0);
+    idle.wait_next       = cast(Thread*, 0);
 
     g_idle_thread        = idle;
     g_current_thread     = idle;
@@ -152,6 +153,7 @@ proc thread_create(entry_point: u64, arg: u64) -> Thread* {
     t.stack_size   = THREAD_STACK_SIZE;
     t.sleep_ticks  = 0;
     t.next         = cast(Thread*, 0);
+    t.wait_next    = cast(Thread*, 0);
 
     g_sched_lock.acquire_irq();
 
@@ -164,7 +166,6 @@ proc thread_create(entry_point: u64, arg: u64) -> Thread* {
 
     return t;
 }
-
 
 proc sched_schedule(current_rsp: u64) -> u64 {
     if (!g_sched_active) {

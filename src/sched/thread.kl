@@ -17,6 +17,7 @@ packed struct Thread {
     stack_size:  u64,
     sleep_ticks: u64,
     next:        Thread*,
+    wait_next:   Thread*,
 
     proc is_ready(t: Thread*) -> bool {
         return t.state == THREAD_STATE_READY;
