@@ -110,7 +110,7 @@ proc pmm_init(mbi: MultibootInfo*, kernel_end: u64) -> void {
     while (current_addr < end_addr) {
         var entry: MultibootMmapEntry* = cast(MultibootMmapEntry*, current_addr);
 
-        if (entry.type == 1) {
+        if (entry.type_ == 1) {
             pmm_init_region(entry.addr, entry.len);
         }
 

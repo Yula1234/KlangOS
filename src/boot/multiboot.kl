@@ -2,7 +2,7 @@ packed struct MultibootMmapEntry {
     size: u32,
     addr: u64,
     len:  u64,
-    type: u32
+    type_: u32
 }
 
 packed struct MultibootInfo {
