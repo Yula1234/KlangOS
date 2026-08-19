@@ -141,26 +141,33 @@ proc kmain(magic: u32, mbi: MultibootInfo*) -> void {
     var input_col: u64 = 23;
 
     while (1) {
-        var c: char = keyboard_getchar();
+        var c: char  = keyboard_getchar();
+        var code: u8 = cast(u8, c);
 
-        if (c == cast(char, 8)) {
-            if (input_col > 23) {
-                input_col = input_col - 1;
-                vga_print(" ", 0x1F, 24, input_col);
+        switch (code) {
+            case 8: {
+                if (input_col > 23) {
+                    input_col = input_col - 1;
+                    vga_print(" ", 0x1F, 24, input_col);
+                }
             }
-        } else if (c == cast(char, 10)) {
-            while (input_col > 23) {
-                input_col = input_col - 1;
-                vga_print(" ", 0x1F, 24, input_col);
-            }
-        } else {
-            if (input_col < 78) {
-                var single_buf: [2]char;
-                single_buf[0] = c;
-                single_buf[1] = cast(char, 0);
 
-                vga_print(&single_buf[0], 0x1F, 24, input_col);
-                input_col = input_col + 1;
+            case 10: {
+                while (input_col > 23) {
+                    input_col = input_col - 1;
+                    vga_print(" ", 0x1F, 24, input_col);
+                }
+            }
+
+            default: {
+                if (input_col < 78) {
+                    var single_buf: [2]char;
+                    single_buf[0] = c;
+                    single_buf[1] = cast(char, 0);
+
+                    vga_print(&single_buf[0], 0x1F, 24, input_col);
+                    input_col = input_col + 1;
+                }
             }
         }
     }

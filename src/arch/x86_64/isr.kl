@@ -35,26 +35,64 @@ var g_timer_ticks: u64;
 
 
 proc get_exception_name(int_no: u64) -> char* {
-    if (int_no == 0)  return "#DE (Divide Error)";
-    if (int_no == 1)  return "#DB (Debug Exception)";
-    if (int_no == 2)  return "#NMI (Non-Maskable Interrupt)";
-    if (int_no == 3)  return "#BP (Breakpoint)";
-    if (int_no == 4)  return "#OF (Overflow)";
-    if (int_no == 5)  return "#BR (BOUND Range Exceeded)";
-    if (int_no == 6)  return "#UD (Invalid Opcode)";
-    if (int_no == 7)  return "#NM (Device Not Available)";
-    if (int_no == 8)  return "#DF (Double Fault)";
-    if (int_no == 10) return "#TS (Invalid TSS)";
-    if (int_no == 11) return "#NP (Segment Not Present)";
-    if (int_no == 12) return "#SS (Stack-Segment Fault)";
-    if (int_no == 13) return "#GP (General Protection Fault)";
-    if (int_no == 14) return "#PF (Page Fault)";
-    if (int_no == 16) return "#MF (x87 Floating-Point Exception)";
-    if (int_no == 17) return "#AC (Alignment Check)";
-    if (int_no == 18) return "#MC (Machine Check)";
-    if (int_no == 19) return "#XF (SIMD Floating-Point Exception)";
+    switch (int_no) {
+        case 0:
+            return "#DE (Divide Error)";
 
-    return "Unknown Exception";
+        case 1:
+            return "#DB (Debug Exception)";
+
+        case 2:
+            return "#NMI (Non-Maskable Interrupt)";
+
+        case 3:
+            return "#BP (Breakpoint)";
+
+        case 4:
+            return "#OF (Overflow)";
+
+        case 5:
+            return "#BR (BOUND Range Exceeded)";
+
+        case 6:
+            return "#UD (Invalid Opcode)";
+
+        case 7:
+            return "#NM (Device Not Available)";
+
+        case 8:
+            return "#DF (Double Fault)";
+
+        case 10:
+            return "#TS (Invalid TSS)";
+
+        case 11:
+            return "#NP (Segment Not Present)";
+
+        case 12:
+            return "#SS (Stack-Segment Fault)";
+
+        case 13:
+            return "#GP (General Protection Fault)";
+
+        case 14:
+            return "#PF (Page Fault)";
+
+        case 16:
+            return "#MF (x87 Floating-Point Exception)";
+
+        case 17:
+            return "#AC (Alignment Check)";
+
+        case 18:
+            return "#MC (Machine Check)";
+
+        case 19:
+            return "#XF (SIMD Floating-Point Exception)";
+
+        default:
+            return "Unknown Exception";
+    }
 }
 
 
@@ -113,40 +151,46 @@ proc isr_panic(frame: InterruptFrame*) -> void {
 proc isr_handler(frame: InterruptFrame*) -> u64 {
     var raw_frame_rsp: u64 = cast(u64, frame);
 
-    if (frame.int_no == 2) {
-        var port61: u8 = io_inb(0x61);
-        io_outb(0x61, port61 | 0x80);
-        io_outb(0x61, port61 & 0x7F);
-        return raw_frame_rsp;
-    }
-
-    if (frame.int_no < 32) {
+    if (frame.int_no < 32 && frame.int_no != 2) {
         isr_panic(frame);
         return raw_frame_rsp;
     }
 
-    if (frame.int_no == 32) {
-        g_timer_ticks = g_timer_ticks + 1;
-        lapic_eoi();
+    switch (frame.int_no) {
+        case 2: {
+            var port61: u8 = io_inb(0x61);
+            io_outb(0x61, port61 | 0x80);
+            io_outb(0x61, port61 & 0x7F);
 
-        if (g_sched_active) {
-            return sched_schedule(raw_frame_rsp);
+            return raw_frame_rsp;
         }
 
-        return raw_frame_rsp;
+        case 32: {
+            g_timer_ticks = g_timer_ticks + 1;
+            lapic_eoi();
+
+            if (g_sched_active) {
+                return sched_schedule(raw_frame_rsp);
+            }
+
+            return raw_frame_rsp;
+        }
+
+        case 33: {
+            keyboard_handle_irq();
+            lapic_eoi();
+
+            return raw_frame_rsp;
+        }
+
+        case 255: {
+            return raw_frame_rsp;
+        }
+
+        default: {
+            lapic_eoi();
+
+            return raw_frame_rsp;
+        }
     }
-
-    if (frame.int_no == 33) {
-        keyboard_handle_irq();
-        lapic_eoi();
-        return raw_frame_rsp;
-    }
-
-    if (frame.int_no == 255) {
-        return raw_frame_rsp;
-    }
-
-    lapic_eoi();
-
-    return raw_frame_rsp;
 }
