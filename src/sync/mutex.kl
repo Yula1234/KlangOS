@@ -1,0 +1,50 @@
+import "sync/waitqueue.kl";
+import "sync/spinlock.kl";
+import "sync/atomic.kl";
+
+import "sched/thread.kl";
+import "sched/sched.kl";
+
+
+packed struct Mutex {
+    state:   Atomic,
+    holder:  Thread*,
+    waiters: WaitQueue,
+
+    proc init(m: Mutex*) -> void {
+        m.state.init(0);
+        m.holder = cast(Thread*, 0);
+        m.waiters.init();
+
+        return;
+    }
+
+    proc is_locked(m: Mutex*) -> bool {
+        return m.state.get() != 0;
+    }
+
+    proc try_lock(m: Mutex*) -> bool {
+        if (m.state.cas(0, 1) == 0) {
+            m.holder = g_current_thread;
+            return true;
+        }
+
+        return false;
+    }
+
+    proc lock(m: Mutex*) -> void {
+        while (!m.try_lock()) {
+            m.waiters.wait();
+        }
+
+        return;
+    }
+
+    proc unlock(m: Mutex*) -> void {
+        m.holder = cast(Thread*, 0);
+        m.state.set(0);
+        m.waiters.wake_one();
+
+        return;
+    }
+}
