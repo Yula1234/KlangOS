@@ -28,12 +28,12 @@ $(TARGET): $(OBJS) $(LINKER_LD)
 	@$(LD) -m elf_x86_64 -T $(LINKER_LD) -nostdlib $(OBJS) -o $@
 	@printf "%b[OK]%b    Kernel built: $@\n" "$(GREEN)" "$(RESET)"
 
-$(BUILD_DIR)/boot.o: $(SRC_DIR)/boot.asm
+$(BUILD_DIR)/boot.o: $(SRC_DIR)/arch/x86_64/boot.asm
 	@mkdir -p $(BUILD_DIR)
 	@printf "%b[NASM]%b  $<\n" "$(GREEN)" "$(RESET)"
 	@$(NASM) -f elf64 $< -o $@
 
-$(BUILD_DIR)/interrupts.o: $(SRC_DIR)/interrupts.asm
+$(BUILD_DIR)/interrupts.o: $(SRC_DIR)/arch/x86_64/interrupts.asm
 	@mkdir -p $(BUILD_DIR)
 	@printf "%b[NASM]%b  $<\n" "$(GREEN)" "$(RESET)"
 	@$(NASM) -f elf64 $< -o $@
