@@ -56,10 +56,10 @@ packed struct Thread {
 
 
 proc thread_from_sched_node(node: ListNode*) -> Thread* {
-    return cast(Thread*, node);
+    return cast(Thread*, cast(u64, node) - offsetof(Thread, sched_node));
 }
 
 
 proc thread_from_wait_node(node: ListNode*) -> Thread* {
-    return cast(Thread*, cast(u64, node) - 16);
+    return cast(Thread*, cast(u64, node) - offsetof(Thread, wait_node));
 }

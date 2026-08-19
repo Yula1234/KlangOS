@@ -29,14 +29,14 @@ var g_gdt_ptr:  GdtPointer;
 var g_df_stack: [4096]u8;
 
 proc gdt_init(kernel_stack_top: u64) -> void {
-    memzero(cast(u8*, &g_tss), 104);
+    memzero(cast(u8*, &g_tss), sizeof(TSS));
 
     g_tss.rsp0       = kernel_stack_top;
-    g_tss.ist1       = (cast(u64, &g_df_stack[0]) + 4096) & ~15;
-    g_tss.iomap_base = 104;
+    g_tss.ist1       = (cast(u64, &g_df_stack[0]) + sizeof([4096]u8)) & ~15;
+    g_tss.iomap_base = cast(u16, sizeof(TSS));
 
     var tss_base: u64 = cast(u64, &g_tss);
-    var tss_size: u64 = 104 - 1;
+    var tss_size: u64 = sizeof(TSS) - 1;
 
     g_gdt[0] = 0x0000000000000000;
     g_gdt[1] = 0x00209A0000000000;

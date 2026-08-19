@@ -65,12 +65,12 @@ proc sched_init() -> void {
     g_next_thread_id = 1;
     g_sched_active   = false;
 
-    var idle: Thread* = cast(Thread*, kalloc(64));
+    var idle: Thread* = cast(Thread*, kalloc(sizeof(Thread)));
     idle.sched_node.init();
     idle.wait_node.init();
 
     idle.id          = 0;
-    idle.rsp         = 0;
+    idle.rsp             = 0;
     idle.state       = THREAD_STATE_RUNNING;
     idle.stack_base  = 0;
     idle.stack_size  = 0;
@@ -92,11 +92,11 @@ proc sched_init() -> void {
 
 
 proc thread_create(entry_point: u64, arg: u64) -> Thread* {
-    var t: Thread*      = cast(Thread*, kalloc(64));
+    var t: Thread*      = cast(Thread*, kalloc(sizeof(Thread)));
     var stack_mem: u8*  = kalloc(THREAD_STACK_SIZE);
     var stack_top: u64  = (cast(u64, stack_mem) + THREAD_STACK_SIZE) & ~15;
 
-    var frame_addr: u64 = stack_top - 176;
+    var frame_addr: u64 = stack_top - sizeof(InterruptFrame);
     var frame: InterruptFrame* = cast(InterruptFrame*, frame_addr);
 
     frame.r15      = 0;
