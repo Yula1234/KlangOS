@@ -1,5 +1,6 @@
 import "vga.kl";
 import "apic.kl";
+import "keyboard.kl";
 
 packed struct InterruptFrame {
     r15:      u64,
@@ -118,12 +119,16 @@ proc isr_handler(frame: InterruptFrame*) -> void {
     if (frame.int_no == 32) {
         g_timer_ticks = g_timer_ticks + 1;
 
-        vga_print("Heartbeat APIC Ticks : ", 0x1E, 23, 4);
-        vga_print_dec(g_timer_ticks, 0x1A, 23, 27);
-
         lapic_eoi();
         return;
     }
+
+    if (frame.int_no == 33) {
+        keyboard_handle_irq();
+        lapic_eoi();
+        return;
+    }
+
 
     if (frame.int_no == 255) {
         return;
