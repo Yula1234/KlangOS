@@ -1,5 +1,5 @@
-import "../sync/spinlock.kl";
-import "../multiboot.kl";
+import "sync/spinlock.kl";
+import "multiboot.kl";
 
 
 var g_pmm_bitmap:      [16384]u64;

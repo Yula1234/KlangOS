@@ -1,4 +1,4 @@
-import "../sync/spinlock.kl";
+import "sync/spinlock.kl";
 import "vmm.kl";
 import "pmm.kl";
 

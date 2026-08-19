@@ -45,7 +45,7 @@ $(BUILD_DIR)/kernel.o: $(BUILD_DIR)/kernel.asm
 $(BUILD_DIR)/kernel.asm: $(KL_SRCS)
 	@mkdir -p $(BUILD_DIR)
 	@printf "%b[KLANG]%b $(ENTRY_KL)\n" "$(GREEN)" "$(RESET)"
-	@$(KLANG) $(ENTRY_KL) -o $@
+	@$(KLANG) -I src $(ENTRY_KL) -o $@
 
 run: all
 	@printf "%b[QEMU]%b  Starting emulator...\n" "$(CYAN)" "$(RESET)"
