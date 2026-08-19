@@ -53,6 +53,12 @@ ISR_NOERR 29
 ISR_ERR   30 
 ISR_NOERR 31
 
+%assign i 32
+%rep 224
+    ISR_NOERR i
+%assign i i+1
+%endrep
+
 isr_common_stub:
     push rax
     push rbx
@@ -98,7 +104,7 @@ align 8
 global isr_stub_table
 isr_stub_table:
 %assign i 0
-%rep 32
+%rep 256
     dq isr_%+i
 %assign i i+1
 %endrep

@@ -18,6 +18,7 @@ var g_idt_ptr: IdtPointer;
 
 proc idt_set_gate(num: u8, handler: u64, selector: u16, flags: u8) -> void {
     var entry: IdtEntry* = &g_idt[num];
+
     entry.offset_low  = cast(u16, handler & 0xFFFF);
     entry.selector    = selector;
     entry.ist         = 0;
@@ -25,12 +26,14 @@ proc idt_set_gate(num: u8, handler: u64, selector: u16, flags: u8) -> void {
     entry.offset_mid  = cast(u16, (handler >> 16) & 0xFFFF);
     entry.offset_high = cast(u32, (handler >> 32) & 0xFFFFFFFF);
     entry.zero        = 0;
+
     return;
 }
 
 proc idt_init(stub_table: u64*) -> void {
-    var i = 0;
-    while (i < 32) {
+    var i: u64 = 0;
+
+    while (i < 256) {
         idt_set_gate(cast(u8, i), stub_table[i], 0x08, 0x8E);
         i += 1;
     }
@@ -40,5 +43,6 @@ proc idt_init(stub_table: u64*) -> void {
 
     asm "lea rax, [rel g_idt_ptr]";
     asm "lidt [rax]";
+
     return;
 }

@@ -1,4 +1,5 @@
 import "vga.kl";
+import "apic.kl";
 
 packed struct InterruptFrame {
     r15:      u64,
@@ -25,9 +26,12 @@ packed struct InterruptFrame {
     ss:       u64
 }
 
+var g_timer_ticks: u64;
+
 proc get_exception_name(int_no: u64) -> char* {
     if (int_no == 0)  return "#DE (Divide Error)";
     if (int_no == 1)  return "#DB (Debug Exception)";
+    if (int_no == 2)  return "#NMI (Non-Maskable Interrupt)";
     if (int_no == 3)  return "#BP (Breakpoint)";
     if (int_no == 4)  return "#OF (Overflow)";
     if (int_no == 5)  return "#BR (BOUND Range Exceeded)";
@@ -43,10 +47,11 @@ proc get_exception_name(int_no: u64) -> char* {
     if (int_no == 17) return "#AC (Alignment Check)";
     if (int_no == 18) return "#MC (Machine Check)";
     if (int_no == 19) return "#XF (SIMD Floating-Point Exception)";
+
     return "Unknown Exception";
 }
 
-proc isr_handler(frame: InterruptFrame*) -> void {
+proc isr_panic(frame: InterruptFrame*) -> void {
     vga_clear(0x4F);
 
     vga_print("==================================================", 0x4E, 1, 14);
@@ -94,5 +99,36 @@ proc isr_handler(frame: InterruptFrame*) -> void {
         asm "hlt";
     }
 
+    return;
+}
+
+proc isr_handler(frame: InterruptFrame*) -> void {
+    if (frame.int_no == 2) {
+        var port61: u8 = io_inb(0x61);
+        io_outb(0x61, port61 | 0x80);
+        io_outb(0x61, port61 & 0x7F);
+        return;
+    }
+
+    if (frame.int_no < 32) {
+        isr_panic(frame);
+        return;
+    }
+
+    if (frame.int_no == 32) {
+        g_timer_ticks = g_timer_ticks + 1;
+
+        vga_print("Heartbeat APIC Ticks : ", 0x1E, 23, 4);
+        vga_print_dec(g_timer_ticks, 0x1A, 23, 27);
+
+        lapic_eoi();
+        return;
+    }
+
+    if (frame.int_no == 255) {
+        return;
+    }
+
+    lapic_eoi();
     return;
 }
