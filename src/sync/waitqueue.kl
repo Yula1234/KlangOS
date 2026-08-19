@@ -29,7 +29,7 @@ packed struct WaitQueue {
         wq.lock.acquire_irq();
 
         wq.head.add_tail(&g_current_thread.wait_node);
-        g_current_thread.state = THREAD_STATE_BLOCKED;
+        g_current_thread.state = ThreadState.BLOCKED;
 
         wq.lock.release_irq();
 
@@ -45,7 +45,7 @@ packed struct WaitQueue {
 
         if (cast(u64, node) != 0) {
             var t: Thread* = thread_from_wait_node(node);
-            t.state = THREAD_STATE_READY;
+            t.state = ThreadState.READY;
             wq.lock.release_irq();
             return true;
         }
@@ -64,7 +64,7 @@ packed struct WaitQueue {
             var node: ListNode* = wq.head.pop_head();
             var t: Thread*      = thread_from_wait_node(node);
 
-            t.state = THREAD_STATE_READY;
+            t.state = ThreadState.READY;
             count   = count + 1;
         }
 

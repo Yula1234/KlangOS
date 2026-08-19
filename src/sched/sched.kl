@@ -26,7 +26,7 @@ proc sched_reap_dead_threads() -> void {
         var next_node: ListNode* = curr_node.next;
         var t: Thread*           = thread_from_sched_node(curr_node);
 
-        if (t.state == THREAD_STATE_DEAD) {
+        if (t.state == ThreadState.DEAD) {
             curr_node.remove();
 
             var stack_to_free: u8*  = cast(u8*, t.stack_base);
@@ -70,8 +70,8 @@ proc sched_init() -> void {
     idle.wait_node.init();
 
     idle.id          = 0;
-    idle.rsp             = 0;
-    idle.state       = THREAD_STATE_RUNNING;
+    idle.rsp         = 0;
+    idle.state       = ThreadState.RUNNING;
     idle.stack_base  = 0;
     idle.stack_size  = 0;
     idle.sleep_ticks = 0;
@@ -128,7 +128,7 @@ proc thread_create(entry_point: u64, arg: u64) -> Thread* {
     t.wait_node.init();
 
     t.rsp          = frame_addr;
-    t.state        = THREAD_STATE_READY;
+    t.state        = ThreadState.READY;
     t.stack_base   = cast(u64, stack_mem);
     t.stack_size   = THREAD_STACK_SIZE;
     t.sleep_ticks  = 0;
@@ -156,8 +156,8 @@ proc sched_schedule(current_rsp: u64) -> u64 {
     if (cast(u64, g_current_thread) != 0) {
         g_current_thread.rsp = current_rsp;
 
-        if (g_current_thread.state == THREAD_STATE_RUNNING) {
-            g_current_thread.state = THREAD_STATE_READY;
+        if (g_current_thread.state == ThreadState.RUNNING) {
+            g_current_thread.state = ThreadState.READY;
         }
     }
 
@@ -166,9 +166,9 @@ proc sched_schedule(current_rsp: u64) -> u64 {
     while (curr_node != &g_thread_list_head) {
         var t: Thread* = thread_from_sched_node(curr_node);
 
-        if (t.state == THREAD_STATE_SLEEPING) {
+        if (t.state == ThreadState.SLEEPING) {
             if (g_timer_ticks >= t.sleep_ticks) {
-                t.state = THREAD_STATE_READY;
+                t.state = ThreadState.READY;
             }
         }
 
@@ -187,7 +187,7 @@ proc sched_schedule(current_rsp: u64) -> u64 {
     while (curr_node != &g_thread_list_head) {
         var t: Thread* = thread_from_sched_node(curr_node);
 
-        if (t.state == THREAD_STATE_READY) {
+        if (t.state == ThreadState.READY) {
             next_thread = t;
             break;
         }
@@ -201,7 +201,7 @@ proc sched_schedule(current_rsp: u64) -> u64 {
         while (curr_node != start_node) {
             var t: Thread* = thread_from_sched_node(curr_node);
 
-            if (t.state == THREAD_STATE_READY) {
+            if (t.state == ThreadState.READY) {
                 next_thread = t;
                 break;
             }
@@ -215,7 +215,7 @@ proc sched_schedule(current_rsp: u64) -> u64 {
     }
 
     g_current_thread       = next_thread;
-    g_current_thread.state = THREAD_STATE_RUNNING;
+    g_current_thread.state = ThreadState.RUNNING;
 
     var new_rsp: u64       = g_current_thread.rsp;
 
@@ -236,7 +236,7 @@ proc thread_sleep(ticks: u64) -> void {
     g_sched_lock.acquire_irq();
 
     g_current_thread.sleep_ticks = g_timer_ticks + ticks;
-    g_current_thread.state       = THREAD_STATE_SLEEPING;
+    g_current_thread.state       = ThreadState.SLEEPING;
 
     g_sched_lock.release_irq();
 
@@ -249,7 +249,7 @@ proc thread_sleep(ticks: u64) -> void {
 proc thread_exit() -> void {
     g_sched_lock.acquire_irq();
 
-    g_current_thread.state = THREAD_STATE_DEAD;
+    g_current_thread.state = ThreadState.DEAD;
 
     g_sched_lock.release_irq();
 

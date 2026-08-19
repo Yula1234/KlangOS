@@ -1,12 +1,14 @@
 import "lib/list.kl";
 
-const THREAD_STATE_READY:     u32 = 1;
-const THREAD_STATE_RUNNING:   u32 = 2;
-const THREAD_STATE_BLOCKED:   u32 = 3;
-const THREAD_STATE_SLEEPING:  u32 = 4;
-const THREAD_STATE_DEAD:      u32 = 5;
+enum ThreadState: u8 {
+    READY = 1,
+    RUNNING,
+    BLOCKED,
+    SLEEPING,
+    DEAD
+}
 
-const THREAD_STACK_SIZE:      u64 = 16384;
+const THREAD_STACK_SIZE: u64 = 16384;
 
 
 packed struct Thread {
@@ -14,41 +16,41 @@ packed struct Thread {
     wait_node:   ListNode,
     id:          u64,
     rsp:         u64,
-    state:       u32,
+    state:       ThreadState,
     stack_base:  u64,
     stack_size:  u64,
     sleep_ticks: u64,
 
     proc is_ready(t: Thread*) -> bool {
-        return t.state == THREAD_STATE_READY;
+        return t.state == ThreadState.READY;
     }
 
     proc is_running(t: Thread*) -> bool {
-        return t.state == THREAD_STATE_RUNNING;
+        return t.state == ThreadState.RUNNING;
     }
 
     proc is_sleeping(t: Thread*) -> bool {
-        return t.state == THREAD_STATE_SLEEPING;
+        return t.state == ThreadState.SLEEPING;
     }
 
     proc is_dead(t: Thread*) -> bool {
-        return t.state == THREAD_STATE_DEAD;
+        return t.state == ThreadState.DEAD;
     }
 
     proc block(t: Thread*) -> void {
-        t.state = THREAD_STATE_BLOCKED;
+        t.state = ThreadState.BLOCKED;
 
         return;
     }
 
     proc unblock(t: Thread*) -> void {
-        t.state = THREAD_STATE_READY;
+        t.state = ThreadState.READY;
 
         return;
     }
 
     proc terminate(t: Thread*) -> void {
-        t.state = THREAD_STATE_DEAD;
+        t.state = ThreadState.DEAD;
 
         return;
     }
