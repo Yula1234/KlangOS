@@ -119,8 +119,7 @@ proc pmm_init(mbi: MultibootInfo*, kernel_end: u64) -> void {
 }
 
 
-
-proc pmm_alloc_page() -> u64 {
+proc pmm_alloc_page() -> (u64, bool) {
     g_pmm_lock.acquire_irq();
 
     for (var w: u64 = 0; w < 16384; w += 1) {
@@ -138,7 +137,7 @@ proc pmm_alloc_page() -> u64 {
 
                     g_pmm_lock.release_irq();
 
-                    return frame_idx * 4096;
+                    return (frame_idx * 4096, true);
                 }
             }
         }
@@ -146,7 +145,7 @@ proc pmm_alloc_page() -> u64 {
 
     g_pmm_lock.release_irq();
 
-    return 0;
+    return (0, false);
 }
 
 

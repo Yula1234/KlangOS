@@ -25,9 +25,9 @@ proc heap_expand_unlocked(needed_bytes: u64) -> u64 {
     var p: u64        = 0;
 
     while (p < pages) {
-        var phys: u64 = pmm_alloc_page();
+        var (phys, ok) = pmm_alloc_page();
 
-        if (phys == 0) {
+        if (!ok) {
             return 0;
         }
 
