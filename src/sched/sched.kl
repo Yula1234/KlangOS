@@ -66,15 +66,13 @@ proc sched_init() -> void {
     g_sched_active   = false;
 
     var idle: Thread* = cast(Thread*, kalloc(sizeof(Thread)));
+    idle[0] = Thread {
+        id:    0,
+        state: ThreadState.RUNNING
+    };
+
     idle.sched_node.init();
     idle.wait_node.init();
-
-    idle.id          = 0;
-    idle.rsp         = 0;
-    idle.state       = ThreadState.RUNNING;
-    idle.stack_base  = 0;
-    idle.stack_size  = 0;
-    idle.sleep_ticks = 0;
 
     g_idle_thread    = idle;
     g_current_thread = idle;
@@ -90,7 +88,6 @@ proc sched_init() -> void {
     return;
 }
 
-
 proc thread_create(entry_point: u64, arg: u64) -> Thread* {
     var t: Thread*      = cast(Thread*, kalloc(sizeof(Thread)));
     var stack_mem: u8*  = kalloc(THREAD_STACK_SIZE);
@@ -99,45 +96,24 @@ proc thread_create(entry_point: u64, arg: u64) -> Thread* {
     var frame_addr: u64 = stack_top - sizeof(InterruptFrame);
     var frame: InterruptFrame* = cast(InterruptFrame*, frame_addr);
 
-    frame.r15      = 0;
-    frame.r14      = 0;
-    frame.r13      = 0;
-    frame.r12      = 0;
-    frame.r11      = 0;
-    frame.r10      = 0;
-    frame.r9       = 0;
-    frame.r8       = 0;
-    frame.rbp      = 0;
-    frame.rdi      = arg;
-    frame.rsi      = 0;
-    frame.rdx      = 0;
-    frame.rcx      = 0;
-    frame.rbx      = 0;
-    frame.rax      = 0;
+    frame[0] = InterruptFrame {
+        rdi: arg,
+        rip: entry_point,
+        rsp: stack_top
+    };
 
-    frame.int_no   = 32;
-    frame.err_code = 0;
-
-    frame.rip      = entry_point;
-    frame.cs       = 0x08;
-    frame.rflags   = 0x0202;
-    frame.rsp      = stack_top;
-    frame.ss       = 0x10;
+    t[0] = Thread {
+        id:         g_next_thread_id,
+        rsp:        frame_addr,
+        stack_base: cast(u64, stack_mem)
+    };
 
     t.sched_node.init();
     t.wait_node.init();
 
-    t.rsp          = frame_addr;
-    t.state        = ThreadState.READY;
-    t.stack_base   = cast(u64, stack_mem);
-    t.stack_size   = THREAD_STACK_SIZE;
-    t.sleep_ticks  = 0;
-
     g_sched_lock.acquire_irq();
 
-    t.id           = g_next_thread_id;
     g_next_thread_id = g_next_thread_id + 1;
-
     g_thread_list_head.add_tail(&t.sched_node);
 
     g_sched_lock.release_irq();

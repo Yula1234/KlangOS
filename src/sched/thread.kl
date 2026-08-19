@@ -14,12 +14,12 @@ const THREAD_STACK_SIZE: u64 = 16384;
 packed struct Thread {
     sched_node:  ListNode,
     wait_node:   ListNode,
-    id:          u64,
-    rsp:         u64,
-    state:       ThreadState,
-    stack_base:  u64,
-    stack_size:  u64,
-    sleep_ticks: u64,
+    id:          u64 = 0,
+    rsp:         u64 = 0,
+    state:       ThreadState = ThreadState.READY,
+    stack_base:  u64 = 0,
+    stack_size:  u64 = THREAD_STACK_SIZE,
+    sleep_ticks: u64 = 0,
 
     proc is_ready(t: Thread*) -> bool {
         return t.state == ThreadState.READY;
