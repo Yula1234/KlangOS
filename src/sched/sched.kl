@@ -31,6 +31,55 @@ proc sched_enqueue_unlocked(t: Thread*) -> void {
     return;
 }
 
+proc sched_reap_dead_threads() -> void {
+    g_sched_lock.acquire_irq();
+
+    var prev: Thread* = cast(Thread*, 0);
+    var curr: Thread* = g_thread_list_head;
+
+    while (cast(u64, curr) != 0) {
+        var next_thread: Thread* = curr.next;
+
+        if (curr.state == THREAD_STATE_DEAD) {
+            if (cast(u64, prev) == 0) {
+                g_thread_list_head = next_thread;
+            } else {
+                prev.next = next_thread;
+            }
+
+            if (cast(u64, curr) == cast(u64, g_thread_list_tail)) {
+                g_thread_list_tail = prev;
+            }
+
+            var stack_to_free: u8*  = cast(u8*, curr.stack_base);
+            var thread_to_free: u8* = cast(u8*, curr);
+
+            if (cast(u64, stack_to_free) != 0) {
+                kfree(stack_to_free);
+            }
+
+            kfree(thread_to_free);
+        } else {
+            prev = curr;
+        }
+
+        curr = next_thread;
+    }
+
+    g_sched_lock.release_irq();
+
+    return;
+}
+
+
+proc reaper_task(arg: u64) -> void {
+    while (1) {
+        sched_reap_dead_threads();
+        thread_sleep(50);
+    }
+
+    return;
+}
 
 proc sched_init() -> void {
     g_sched_lock.init();
@@ -55,6 +104,8 @@ proc sched_init() -> void {
     g_sched_lock.acquire_irq();
     sched_enqueue_unlocked(idle);
     g_sched_lock.release_irq();
+
+    thread_create(cast(u64, reaper_task), 0);
 
     g_sched_active       = true;
 
