@@ -1,0 +1,489 @@
+proc strlen(str: char*) -> u64 {
+    var len: u64 = 0;
+
+    while (str[len] != cast(char, 0)) {
+        len += 1;
+    }
+
+    return len;
+}
+
+
+proc strnlen(str: char*, max_len: u64) -> u64 {
+    var len: u64 = 0;
+
+    while (len < max_len && str[len] != cast(char, 0)) {
+        len += 1;
+    }
+
+    return len;
+}
+
+
+proc str_is_empty(str: char*) -> bool {
+    if (cast(u64, str) == 0) {
+        return true;
+    }
+
+    return str[0] == cast(char, 0);
+}
+
+
+proc strcmp(s1: char*, s2: char*) -> i32 {
+    var i: u64 = 0;
+
+    while (s1[i] != cast(char, 0) && s1[i] == s2[i]) {
+        i += 1;
+    }
+
+    if (cast(u8, s1[i]) < cast(u8, s2[i])) {
+        return -1;
+    }
+
+    if (cast(u8, s1[i]) > cast(u8, s2[i])) {
+        return 1;
+    }
+
+    return 0;
+}
+
+
+proc strncmp(s1: char*, s2: char*, n: u64) -> i32 {
+    if (n == 0) {
+        return 0;
+    }
+
+    var i: u64 = 0;
+
+    while (i + 1 < n && s1[i] != cast(char, 0) && s1[i] == s2[i]) {
+        i += 1;
+    }
+
+    if (cast(u8, s1[i]) < cast(u8, s2[i])) {
+        return -1;
+    }
+
+    if (cast(u8, s1[i]) > cast(u8, s2[i])) {
+        return 1;
+    }
+
+    return 0;
+}
+
+
+proc streq(s1: char*, s2: char*) -> bool {
+    return strcmp(s1, s2) == 0;
+}
+
+
+proc strneq(s1: char*, s2: char*, n: u64) -> bool {
+    return strncmp(s1, s2, n) == 0;
+}
+
+
+proc to_lower(c: char) -> char {
+    var u: u8 = cast(u8, c);
+
+    if (u >= 65 && u <= 90) {
+        return cast(char, u + 32);
+    }
+
+    return c;
+}
+
+
+proc to_upper(c: char) -> char {
+    var u: u8 = cast(u8, c);
+
+    if (u >= 97 && u <= 122) {
+        return cast(char, u - 32);
+    }
+
+    return c;
+}
+
+
+proc strcasecmp(s1: char*, s2: char*) -> i32 {
+    var i: u64 = 0;
+
+    while (s1[i] != cast(char, 0) && to_lower(s1[i]) == to_lower(s2[i])) {
+        i += 1;
+    }
+
+    var c1: u8 = cast(u8, to_lower(s1[i]));
+    var c2: u8 = cast(u8, to_lower(s2[i]));
+
+    if (c1 < c2) {
+        return -1;
+    }
+
+    if (c1 > c2) {
+        return 1;
+    }
+
+    return 0;
+}
+
+
+proc strcpy(dst: char*, src: char*) -> char* {
+    var i: u64 = 0;
+
+    while (src[i] != cast(char, 0)) {
+        dst[i] = src[i];
+        i += 1;
+    }
+
+    dst[i] = cast(char, 0);
+
+    return dst;
+}
+
+
+proc strncpy(dst: char*, src: char*, n: u64) -> char* {
+    var i: u64 = 0;
+
+    while (i < n && src[i] != cast(char, 0)) {
+        dst[i] = src[i];
+        i += 1;
+    }
+
+    while (i < n) {
+        dst[i] = cast(char, 0);
+        i += 1;
+    }
+
+    return dst;
+}
+
+
+proc strcat(dst: char*, src: char*) -> char* {
+    var d_len: u64 = strlen(dst);
+    var i: u64     = 0;
+
+    while (src[i] != cast(char, 0)) {
+        dst[d_len + i] = src[i];
+        i += 1;
+    }
+
+    dst[d_len + i] = cast(char, 0);
+
+    return dst;
+}
+
+
+proc strncat(dst: char*, src: char*, n: u64) -> char* {
+    var d_len: u64 = strlen(dst);
+    var i: u64     = 0;
+
+    while (i < n && src[i] != cast(char, 0)) {
+        dst[d_len + i] = src[i];
+        i += 1;
+    }
+
+    dst[d_len + i] = cast(char, 0);
+
+    return dst;
+}
+
+
+proc strchr(str: char*, c: char) -> char* {
+    var i: u64 = 0;
+
+    while (str[i] != cast(char, 0)) {
+        if (str[i] == c) {
+            return &str[i];
+        }
+
+        i += 1;
+    }
+
+    if (c == cast(char, 0)) {
+        return &str[i];
+    }
+
+    return cast(char*, 0);
+}
+
+
+proc strrchr(str: char*, c: char) -> char* {
+    var len: u64 = strlen(str);
+    var i: u64   = len;
+
+    while (i > 0) {
+        if (str[i] == c) {
+            return &str[i];
+        }
+
+        i -= 1;
+    }
+
+    if (str[0] == c) {
+        return &str[0];
+    }
+
+    return cast(char*, 0);
+}
+
+
+proc strstr(haystack: char*, needle: char*) -> char* {
+    if (needle[0] == cast(char, 0)) {
+        return haystack;
+    }
+
+    var n_len: u64 = strlen(needle);
+    var i: u64     = 0;
+
+    while (haystack[i] != cast(char, 0)) {
+        if (strncmp(&haystack[i], needle, n_len) == 0) {
+            return &haystack[i];
+        }
+
+        i += 1;
+    }
+
+    return cast(char*, 0);
+}
+
+
+proc str_starts_with(str: char*, prefix: char*) -> bool {
+    var p_len: u64 = strlen(prefix);
+    return strncmp(str, prefix, p_len) == 0;
+}
+
+
+proc str_ends_with(str: char*, suffix: char*) -> bool {
+    var str_len: u64 = strlen(str);
+    var s_len: u64   = strlen(suffix);
+
+    if (s_len > str_len) {
+        return false;
+    }
+
+    var offset: u64 = str_len - s_len;
+    return strcmp(&str[offset], suffix) == 0;
+}
+
+
+proc is_digit(c: char) -> bool {
+    var u: u8 = cast(u8, c);
+    return u >= 48 && u <= 57;
+}
+
+
+proc is_alpha(c: char) -> bool {
+    var u: u8 = cast(u8, c);
+    return (u >= 65 && u <= 90) || (u >= 97 && u <= 122);
+}
+
+
+proc is_alnum(c: char) -> bool {
+    return is_alpha(c) || is_digit(c);
+}
+
+
+proc is_upper(c: char) -> bool {
+    var u: u8 = cast(u8, c);
+    return u >= 65 && u <= 90;
+}
+
+
+proc is_lower(c: char) -> bool {
+    var u: u8 = cast(u8, c);
+    return u >= 97 && u <= 122;
+}
+
+
+proc is_space(c: char) -> bool {
+    var u: u8 = cast(u8, c);
+    return u == 32 || (u >= 9 && u <= 13);
+}
+
+
+proc is_hex_digit(c: char) -> bool {
+    var u: u8 = cast(u8, c);
+    return (u >= 48 && u <= 57) || (u >= 65 && u <= 70) || (u >= 97 && u <= 102);
+}
+
+
+proc itoa_dec(val: u64, buf: char*) -> u64 {
+    if (val == 0) {
+        buf[0] = cast(char, 48);
+        buf[1] = cast(char, 0);
+        return 1;
+    }
+
+    var temp: u64 = val;
+    var len: u64  = 0;
+
+    while (temp > 0) {
+        var rem: u64 = temp % 10;
+        buf[len] = cast(char, 48 + rem);
+        temp = temp / 10;
+        len += 1;
+    }
+
+    var start: u64 = 0;
+    var end: u64   = len - 1;
+
+    while (start < end) {
+        var t: char = buf[start];
+        buf[start]  = buf[end];
+        buf[end]    = t;
+        start += 1;
+        end   -= 1;
+    }
+
+    buf[len] = cast(char, 0);
+
+    return len;
+}
+
+
+proc itoa_signed(val: i64, buf: char*) -> u64 {
+    if (val >= 0) {
+        return itoa_dec(cast(u64, val), buf);
+    }
+
+    buf[0] = cast(char, 45);
+    var uval: u64 = cast(u64, -val);
+    var len: u64  = itoa_dec(uval, &buf[1]);
+
+    return len + 1;
+}
+
+
+proc itoa_hex(val: u64, buf: char*, prefix: bool) -> u64 {
+    var hex_digits: char* = "0123456789ABCDEF";
+    var offset: u64       = 0;
+
+    if (prefix) {
+        buf[0] = cast(char, 48);
+        buf[1] = cast(char, 120);
+        offset = 2;
+    }
+
+    if (val == 0) {
+        buf[offset]     = cast(char, 48);
+        buf[offset + 1] = cast(char, 0);
+        return offset + 1;
+    }
+
+    var temp: u64      = val;
+    var start_idx: u64 = offset;
+    var count: u64     = 0;
+
+    while (temp > 0) {
+        var digit: u64 = temp & 15;
+        buf[offset + count] = hex_digits[digit];
+        temp = temp >> 4;
+        count += 1;
+    }
+
+    var start: u64 = start_idx;
+    var end: u64   = start_idx + count - 1;
+
+    while (start < end) {
+        var t: char = buf[start];
+        buf[start]  = buf[end];
+        buf[end]    = t;
+        start += 1;
+        end   -= 1;
+    }
+
+    buf[offset + count] = cast(char, 0);
+
+    return offset + count;
+}
+
+
+proc itoa_bin(val: u64, buf: char*, prefix: bool) -> u64 {
+    var offset: u64 = 0;
+
+    if (prefix) {
+        buf[0] = cast(char, 48);
+        buf[1] = cast(char, 98);
+        offset = 2;
+    }
+
+    if (val == 0) {
+        buf[offset]     = cast(char, 48);
+        buf[offset + 1] = cast(char, 0);
+        return offset + 1;
+    }
+
+    var temp: u64      = val;
+    var start_idx: u64 = offset;
+    var count: u64     = 0;
+
+    while (temp > 0) {
+        var bit: u64 = temp & 1;
+        buf[offset + count] = cast(char, 48 + bit);
+        temp = temp >> 1;
+        count += 1;
+    }
+
+    var start: u64 = start_idx;
+    var end: u64   = start_idx + count - 1;
+
+    while (start < end) {
+        var t: char = buf[start];
+        buf[start]  = buf[end];
+        buf[end]    = t;
+        start += 1;
+        end   -= 1;
+    }
+
+    buf[offset + count] = cast(char, 0);
+
+    return offset + count;
+}
+
+
+proc atoi_dec(str: char*) -> u64 {
+    var res: u64 = 0;
+    var i: u64   = 0;
+
+    while (is_space(str[i])) {
+        i += 1;
+    }
+
+    while (is_digit(str[i])) {
+        var d: u64 = cast(u64, cast(u8, str[i]) - 48);
+        res = res * 10 + d;
+        i += 1;
+    }
+
+    return res;
+}
+
+
+proc atoi_hex(str: char*) -> u64 {
+    var res: u64 = 0;
+    var i: u64   = 0;
+
+    while (is_space(str[i])) {
+        i += 1;
+    }
+
+    if (str[i] == cast(char, 48) && (str[i + 1] == cast(char, 120) || str[i + 1] == cast(char, 88))) {
+        i += 2;
+    }
+
+    while (is_hex_digit(str[i])) {
+        var u: u8    = cast(u8, str[i]);
+        var val: u64 = 0;
+
+        if (u >= 48 && u <= 57) {
+            val = cast(u64, u - 48);
+        } else if (u >= 65 && u <= 70) {
+            val = cast(u64, u - 65 + 10);
+        } else if (u >= 97 && u <= 102) {
+            val = cast(u64, u - 97 + 10);
+        }
+
+        res = (res << 4) | val;
+        i += 1;
+    }
+
+    return res;
+}

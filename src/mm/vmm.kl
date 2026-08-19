@@ -2,23 +2,12 @@ import "boot/multiboot.kl";
 
 import "sync/spinlock.kl";
 
+import "lib/mem.kl";
+
 import "pmm.kl";
 
 var g_kernel_pml4: u64*;
 var g_vmm_lock:    Spinlock;
-
-
-proc vmm_zero_page(page_ptr: u64*) -> void {
-    var i: u64 = 0;
-
-    while (i < 512) {
-        page_ptr[i] = 0;
-        i += 1;
-    }
-
-    return;
-}
-
 
 proc vmm_invlpg(virt_addr: u64) -> void {
     asm "invlpg [rdi]";
@@ -60,7 +49,7 @@ proc vmm_get_or_create_next_table(current_table: u64*, index: u64, flags: u64, c
     }
 
     var new_table_ptr: u64* = cast(u64*, new_table_phys);
-    vmm_zero_page(new_table_ptr);
+    memzero_page(new_table_ptr);
 
     var entry_flags: u64 = 1 | 2;
 
@@ -234,7 +223,7 @@ proc vmm_init(kernel_end: u64) -> u64* {
     var pml4_phys: u64   = pmm_alloc_page();
     var pml4_ptr: u64*   = cast(u64*, pml4_phys);
 
-    vmm_zero_page(pml4_ptr);
+    memzero_page(pml4_ptr);
 
     vmm_map_range(pml4_ptr, 0, 0, 0x400000, 3);
 

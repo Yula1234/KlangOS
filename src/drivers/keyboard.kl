@@ -2,6 +2,8 @@ import "arch/x86_64/io.kl";
 
 import "sync/spinlock.kl";
 
+import "lib/str.kl";
+
 var g_kbd_buffer: [128]char;
 var g_kbd_head:   u32;
 var g_kbd_tail:   u32;
@@ -82,9 +84,7 @@ proc keyboard_translate(scancode: u8) -> char {
     var c: char = map_normal[scancode];
 
     if (g_kbd_caps) {
-        if (c >= cast(char, 97) && c <= cast(char, 122)) {
-            return cast(char, cast(u8, c) - 32);
-        }
+        return to_upper(c);
     }
 
     return c;

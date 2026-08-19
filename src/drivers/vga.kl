@@ -1,5 +1,6 @@
 import "sync/spinlock.kl";
 
+import "lib/str.kl";
 
 var g_vga_lock: Spinlock;
 
@@ -58,40 +59,11 @@ proc vga_print(str: char*, color: u8, line: u64, col: u64) -> void {
 
 
 proc vga_print_dec_unlocked(val: u64, color: u8, line: u64, col: u64) -> void {
-    if (val == 0) {
-        vga_print_unlocked("0", color, line, col);
-        return;
-    }
-
     var buf: [24]char;
-    var temp: u64 = val;
-    var len: u64  = 0;
-
-    while (temp > 0) {
-        var rem: u64 = temp % 10;
-        buf[len] = cast(char, 48 + rem);
-        temp = temp / 10;
-        len += 1;
-    }
-
-    var start: u64 = 0;
-    var end: u64   = len - 1;
-
-    while (start < end) {
-        var t: char = buf[start];
-        buf[start]  = buf[end];
-        buf[end]    = t;
-        start += 1;
-        end   -= 1;
-    }
-
-    buf[len] = cast(char, 0);
-
+    itoa_dec(val, &buf[0]);
     vga_print_unlocked(&buf[0], color, line, col);
-
     return;
 }
-
 
 proc vga_print_dec(val: u64, color: u8, line: u64, col: u64) -> void {
     g_vga_lock.acquire_irq();
@@ -103,25 +75,9 @@ proc vga_print_dec(val: u64, color: u8, line: u64, col: u64) -> void {
 
 
 proc vga_print_hex_unlocked(val: u64, color: u8, line: u64, col: u64) -> void {
-    var hex_digits: char* = "0123456789ABCDEF";
     var buf: [19]char;
-
-    buf[0] = cast(char, 48);
-    buf[1] = cast(char, 120);
-
-    var i: u64 = 0;
-
-    while (i < 8) {
-        var shift: u64 = (7 - i) * 4;
-        var digit: u64 = (val >> shift) & 15;
-        buf[2 + i] = hex_digits[digit];
-        i += 1;
-    }
-
-    buf[10] = cast(char, 0);
-
+    itoa_hex(val, &buf[0], true);
     vga_print_unlocked(&buf[0], color, line, col);
-
     return;
 }
 

@@ -1,7 +1,9 @@
 import "sync/spinlock.kl";
+
+import "lib/mem.kl";
+
 import "vmm.kl";
 import "pmm.kl";
-
 
 packed struct HeapBlock {
     size:    u64,
@@ -15,30 +17,6 @@ var g_heap_start:       u64;
 var g_heap_end:         u64;
 var g_heap_first_block: HeapBlock*;
 var g_heap_lock:        Spinlock;
-
-
-proc heap_memset(dst: u8*, val: u8, len: u64) -> void {
-    var i: u64 = 0;
-
-    while (i < len) {
-        dst[i] = val;
-        i += 1;
-    }
-
-    return;
-}
-
-
-proc heap_memcpy(dst: u8*, src: u8*, len: u64) -> void {
-    var i: u64 = 0;
-
-    while (i < len) {
-        dst[i] = src[i];
-        i += 1;
-    }
-
-    return;
-}
 
 
 proc heap_expand_unlocked(needed_bytes: u64) -> u64 {
@@ -231,7 +209,7 @@ proc krealloc(ptr: u8*, new_size: u64) -> u8* {
         return cast(u8*, 0);
     }
 
-    heap_memcpy(new_ptr, ptr, block.size);
+    memcpy(new_ptr, ptr, block.size);
     kfree(ptr);
 
     return new_ptr;
@@ -243,7 +221,7 @@ proc kcalloc(count: u64, size: u64) -> u8* {
     var ptr: u8*   = kalloc(total);
 
     if (cast(u64, ptr) != 0) {
-        heap_memset(ptr, 0, total);
+        memset(ptr, cast(u8, 0), total);
     }
 
     return ptr;
