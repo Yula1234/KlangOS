@@ -17,24 +17,34 @@ _start:
     mov [multiboot_info_ptr], ebx
 
     mov edi, pml4_table
-    mov ecx, 4096 * 3 / 4
+    mov ecx, 8192
     xor eax, eax
     cld
     rep stosd
 
-    mov eax, pdpt_table
-    or eax, 0b11
-    mov [pml4_table], eax
+    mov dword [boot_ident_pd + 0], 0x000000 | 0x83
+    mov dword [boot_ident_pd + 8], 0x200000 | 0x83
 
-    mov eax, pd_table
-    or eax, 0b11
-    mov [pdpt_table], eax
+    mov dword [boot_ident_pdpt + 0], boot_ident_pd + 0b11
+    mov dword [pml4_table + 0 * 8],   boot_ident_pdpt + 0b11
 
-    mov eax, 0x000000 | 0x83
-    mov [pd_table], eax
+    mov edi, boot_hhdm_pds
+    mov eax, 0x83
+    mov ecx, 2048
 
-    mov eax, 0x200000 | 0x83
-    mov [pd_table + 8], eax
+.fill_hhdm_pd:
+    mov [edi], eax
+    mov dword [edi + 4], 0
+    add eax, 0x200000
+    add edi, 8
+    loop .fill_hhdm_pd
+
+    mov dword [boot_hhdm_pdpt + 0],  boot_hhdm_pds + 0x0000 + 0b11
+    mov dword [boot_hhdm_pdpt + 8],  boot_hhdm_pds + 0x1000 + 0b11
+    mov dword [boot_hhdm_pdpt + 16], boot_hhdm_pds + 0x2000 + 0b11
+    mov dword [boot_hhdm_pdpt + 24], boot_hhdm_pds + 0x3000 + 0b11
+
+    mov dword [pml4_table + 256 * 8], boot_hhdm_pdpt + 0b11
 
     mov eax, pml4_table
     mov cr3, eax
@@ -100,10 +110,14 @@ multiboot_info_ptr:
 alignb 4096
 pml4_table:
     resb 4096
-pdpt_table:
+boot_ident_pdpt:
     resb 4096
-pd_table:
+boot_ident_pd:
     resb 4096
+boot_hhdm_pdpt:
+    resb 4096
+boot_hhdm_pds:
+    resb 16384
 
 alignb 16
 global stack_top

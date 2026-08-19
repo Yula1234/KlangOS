@@ -6,6 +6,8 @@ import "lib/mem.kl";
 
 import "pmm.kl";
 
+const HHDM_OFFSET: u64 = 0xFFFF800000000000;
+
 type PhysAddr  = u64;
 type VirtAddr  = u64;
 type PageTable = u64*;
@@ -13,14 +15,27 @@ type PageTable = u64*;
 var g_kernel_pml4: PageTable;
 var g_vmm_lock:    Spinlock;
 
+
+proc phys_to_virt(phys: PhysAddr) -> VirtAddr {
+    return phys + HHDM_OFFSET;
+}
+
+
+proc virt_to_phys(virt: VirtAddr) -> PhysAddr {
+    return virt - HHDM_OFFSET;
+}
+
+
 proc vmm_invlpg(virt_addr: VirtAddr) -> void {
     asm "invlpg [rdi]";
+
     return;
 }
 
 
 proc vmm_set_cr3(pml4_phys: PhysAddr) -> void {
     asm "mov cr3, rdi";
+
     return;
 }
 
@@ -39,7 +54,8 @@ proc vmm_get_or_create_next_table(current_table: PageTable, index: u64, flags: u
         }
 
         var next_phys: PhysAddr = entry & 0x000FFFFFFFFFF000;
-        return cast(PageTable, next_phys);
+
+        return cast(PageTable, phys_to_virt(next_phys));
     }
 
     if (create_if_missing == 0) {
@@ -52,7 +68,8 @@ proc vmm_get_or_create_next_table(current_table: PageTable, index: u64, flags: u
         return cast(PageTable, 0);
     }
 
-    var new_table_ptr: PageTable = cast(PageTable, new_table_phys);
+    var new_table_ptr: PageTable = cast(PageTable, phys_to_virt(new_table_phys));
+
     memzero_page(new_table_ptr);
 
     var entry_flags: u64 = 1 | 2;
@@ -155,6 +172,10 @@ proc vmm_unmap_page(pml4: PageTable, virt_addr: VirtAddr) -> void {
 
 
 proc vmm_virt_to_phys(pml4: PageTable, virt_addr: VirtAddr) -> (PhysAddr, bool) {
+    if (virt_addr >= HHDM_OFFSET && virt_addr < (HHDM_OFFSET + 0x100000000)) {
+        return (virt_to_phys(virt_addr), true);
+    }
+
     var aligned_virt: VirtAddr = virt_addr & 0xFFFFFFFFFFFFF000;
     var page_offset: u64       = virt_addr & 4095;
 
@@ -223,14 +244,15 @@ proc vmm_init(kernel_end: VirtAddr) -> PageTable {
         return cast(PageTable, 0);
     }
 
-    var pml4_ptr: PageTable = cast(PageTable, pml4_phys);
+    var pml4_ptr: PageTable = cast(PageTable, phys_to_virt(pml4_phys));
 
     memzero_page(pml4_ptr);
 
-    vmm_map_range(pml4_ptr, 0, 0, 0x400000, 3);
+    var boot_cr3: PhysAddr   = vmm_get_cr3();
+    var boot_pml4: PageTable = cast(PageTable, phys_to_virt(boot_cr3));
 
-    var kernel_size: u64 = kernel_end - 0x100000 + 4096;
-    vmm_map_range(pml4_ptr, 0x100000, 0x100000, kernel_size, 3);
+    pml4_ptr[0]   = boot_pml4[0];
+    pml4_ptr[256] = boot_pml4[256];
 
     vmm_set_cr3(pml4_phys);
 
