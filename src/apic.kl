@@ -1,5 +1,7 @@
 import "io.kl";
 import "vmm.kl";
+import "sync/spinlock.kl";
+
 
 const MSR_APIC_BASE:            u32 = 0x0000001B;
 const APIC_BASE_MASK:           u64 = 0x000FFFFFFFFFF000;
@@ -11,6 +13,7 @@ const PORT_IMCR_DATA:           u16 = 0x0023;
 const DEFAULT_LAPIC_PHYS:       u64 = 0x00000000FEE00000;
 const DEFAULT_IOAPIC_PHYS:      u64 = 0x00000000FEC00000;
 
+
 const LAPIC_REG_ID:             u32 = 0x0020;
 const LAPIC_REG_VERSION:        u32 = 0x0030;
 const LAPIC_REG_TPR:            u32 = 0x0080;
@@ -18,7 +21,6 @@ const LAPIC_REG_EOI:            u32 = 0x00B0;
 const LAPIC_REG_LDR:            u32 = 0x00D0;
 const LAPIC_REG_DFR:            u32 = 0x00E0;
 const LAPIC_REG_SVR:            u32 = 0x00F0;
-const LAPIC_REG_ISR0:           u32 = 0x0100;
 const LAPIC_REG_ESR:            u32 = 0x0280;
 
 const LAPIC_REG_LVT_TIMER:      u32 = 0x0320;
@@ -30,6 +32,7 @@ const LAPIC_REG_TIMER_INIT:     u32 = 0x0380;
 const LAPIC_REG_TIMER_CURR:     u32 = 0x0390;
 const LAPIC_REG_TIMER_DIV:      u32 = 0x03E0;
 
+
 const IOAPIC_REGSEL:            u64 = 0x00;
 const IOAPIC_IOWIN:             u64 = 0x10;
 
@@ -37,9 +40,12 @@ const IOAPIC_ID:                u8  = 0x00;
 const IOAPIC_VERSION:           u8  = 0x01;
 const IOAPIC_REDTBL_BASE:       u8  = 0x10;
 
+
 var g_lapic_base:               u64;
 var g_ioapic_base:              u64;
 var g_ioapic_max_redirections:  u32;
+var g_ioapic_lock:              Spinlock;
+
 
 proc msr_read(msr: u32) -> u64 {
     asm "mov ecx, edi";
@@ -47,6 +53,7 @@ proc msr_read(msr: u32) -> u64 {
     asm "shl rdx, 32";
     return asm "or rax, rdx" -> u64;
 }
+
 
 proc msr_write(msr: u32, val: u64) -> void {
     asm "mov ecx, edi";
@@ -57,6 +64,7 @@ proc msr_write(msr: u32, val: u64) -> void {
 
     return;
 }
+
 
 proc pic_disable() -> void {
     io_outb(PORT_IMCR_SELECT, 0x70);
@@ -92,6 +100,7 @@ proc pic_disable() -> void {
     return;
 }
 
+
 proc lapic_write(reg: u32, val: u32) -> void {
     var ptr: u32* = cast(u32*, g_lapic_base + cast(u64, reg));
     ptr[0] = val;
@@ -99,10 +108,12 @@ proc lapic_write(reg: u32, val: u32) -> void {
     return;
 }
 
+
 proc lapic_read(reg: u32) -> u32 {
     var ptr: u32* = cast(u32*, g_lapic_base + cast(u64, reg));
     return ptr[0];
 }
+
 
 proc lapic_eoi() -> void {
     lapic_write(LAPIC_REG_EOI, 0);
@@ -110,13 +121,26 @@ proc lapic_eoi() -> void {
     return;
 }
 
+
 proc lapic_get_id() -> u32 {
     return (lapic_read(LAPIC_REG_ID) >> 24) & 0xFF;
 }
 
+
 proc lapic_get_version() -> u32 {
     return lapic_read(LAPIC_REG_VERSION);
 }
+
+
+proc lapic_get_current_count() -> u32 {
+    return lapic_read(LAPIC_REG_TIMER_CURR);
+}
+
+
+proc lapic_get_svr() -> u32 {
+    return lapic_read(LAPIC_REG_SVR);
+}
+
 
 proc lapic_init() -> void {
     var apic_base_msr: u64 = msr_read(MSR_APIC_BASE);
@@ -152,6 +176,7 @@ proc lapic_init() -> void {
     return;
 }
 
+
 proc lapic_timer_init(vector: u8, initial_count: u32, is_periodic: bool) -> void {
     lapic_write(LAPIC_REG_TIMER_DIV, 0x03);
 
@@ -168,7 +193,16 @@ proc lapic_timer_init(vector: u8, initial_count: u32, is_periodic: bool) -> void
     return;
 }
 
-proc ioapic_write(reg: u8, val: u32) -> void {
+
+proc lapic_timer_stop() -> void {
+    lapic_write(LAPIC_REG_TIMER_INIT, 0);
+    lapic_write(LAPIC_REG_LVT_TIMER, 0x00010000);
+
+    return;
+}
+
+
+proc ioapic_write_unlocked(reg: u8, val: u32) -> void {
     var regsel: u32* = cast(u32*, g_ioapic_base + IOAPIC_REGSEL);
     var iowin:  u32* = cast(u32*, g_ioapic_base + IOAPIC_IOWIN);
 
@@ -178,7 +212,8 @@ proc ioapic_write(reg: u8, val: u32) -> void {
     return;
 }
 
-proc ioapic_read(reg: u8) -> u32 {
+
+proc ioapic_read_unlocked(reg: u8) -> u32 {
     var regsel: u32* = cast(u32*, g_ioapic_base + IOAPIC_REGSEL);
     var iowin:  u32* = cast(u32*, g_ioapic_base + IOAPIC_IOWIN);
 
@@ -186,16 +221,68 @@ proc ioapic_read(reg: u8) -> u32 {
     return iowin[0];
 }
 
+
+proc ioapic_write(reg: u8, val: u32) -> void {
+    g_ioapic_lock.acquire_irq();
+    ioapic_write_unlocked(reg, val);
+    g_ioapic_lock.release_irq();
+
+    return;
+}
+
+
+proc ioapic_read(reg: u8) -> u32 {
+    g_ioapic_lock.acquire_irq();
+    var val: u32 = ioapic_read_unlocked(reg);
+    g_ioapic_lock.release_irq();
+
+    return val;
+}
+
+
 proc ioapic_set_entry(irq: u8, entry_low: u32, entry_high: u32) -> void {
     var reg_low:  u8 = IOAPIC_REDTBL_BASE + (irq * 2);
     var reg_high: u8 = reg_low + 1;
 
-    ioapic_write(reg_low, entry_low | 0x00010000);
-    ioapic_write(reg_high, entry_high);
-    ioapic_write(reg_low, entry_low);
+    g_ioapic_lock.acquire_irq();
+
+    ioapic_write_unlocked(reg_low, entry_low | 0x00010000);
+    ioapic_write_unlocked(reg_high, entry_high);
+    ioapic_write_unlocked(reg_low, entry_low);
+
+    g_ioapic_lock.release_irq();
 
     return;
 }
+
+
+proc ioapic_mask_irq(irq: u8) -> void {
+    var reg_low: u8 = IOAPIC_REDTBL_BASE + (irq * 2);
+
+    g_ioapic_lock.acquire_irq();
+
+    var current: u32 = ioapic_read_unlocked(reg_low);
+    ioapic_write_unlocked(reg_low, current | 0x00010000);
+
+    g_ioapic_lock.release_irq();
+
+    return;
+}
+
+
+proc ioapic_unmask_irq(irq: u8) -> void {
+    var reg_low: u8 = IOAPIC_REDTBL_BASE + (irq * 2);
+
+    g_ioapic_lock.acquire_irq();
+
+    var current: u32 = ioapic_read_unlocked(reg_low);
+    ioapic_write_unlocked(reg_low, current & ~0x00010000);
+
+    g_ioapic_lock.release_irq();
+
+    return;
+}
+
 
 proc ioapic_route_isa_irq(irq: u8, vector: u8, dest_apic_id: u8) -> void {
     var low:  u32 = cast(u32, vector);
@@ -206,7 +293,10 @@ proc ioapic_route_isa_irq(irq: u8, vector: u8, dest_apic_id: u8) -> void {
     return;
 }
 
+
 proc ioapic_init() -> void {
+    g_ioapic_lock.init();
+
     g_ioapic_base = DEFAULT_IOAPIC_PHYS;
 
     vmm_map_page(g_kernel_pml4, g_ioapic_base, g_ioapic_base, 27);
@@ -223,6 +313,7 @@ proc ioapic_init() -> void {
 
     return;
 }
+
 
 proc apic_init() -> void {
     pic_disable();

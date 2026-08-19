@@ -1,4 +1,5 @@
 import "io.kl";
+import "sync/spinlock.kl";
 
 
 var g_kbd_buffer: [128]char;
@@ -6,9 +7,12 @@ var g_kbd_head:   u32;
 var g_kbd_tail:   u32;
 var g_kbd_shift:  bool;
 var g_kbd_caps:   bool;
+var g_kbd_lock:   Spinlock;
 
 
 proc keyboard_init() -> void {
+    g_kbd_lock.init();
+
     g_kbd_head  = 0;
     g_kbd_tail  = 0;
     g_kbd_shift = false;
@@ -18,7 +22,7 @@ proc keyboard_init() -> void {
 }
 
 
-proc keyboard_push(c: char) -> void {
+proc keyboard_push_unlocked(c: char) -> void {
     if (c == cast(char, 0)) {
         return;
     }
@@ -35,19 +39,32 @@ proc keyboard_push(c: char) -> void {
 
 
 proc keyboard_has_char() -> bool {
-    return g_kbd_head != g_kbd_tail;
+    g_kbd_lock.acquire_irq();
+    var has: bool = g_kbd_head != g_kbd_tail;
+    g_kbd_lock.release_irq();
+
+    return has;
 }
 
 
 proc keyboard_getchar() -> char {
-    while (!keyboard_has_char()) {
+    while (1) {
+        g_kbd_lock.acquire_irq();
+
+        if (g_kbd_head != g_kbd_tail) {
+            var c: char = g_kbd_buffer[g_kbd_tail];
+            g_kbd_tail  = (g_kbd_tail + 1) & 127;
+
+            g_kbd_lock.release_irq();
+            return c;
+        }
+
+        g_kbd_lock.release_irq();
+
         asm "hlt";
     }
 
-    var c: char = g_kbd_buffer[g_kbd_tail];
-    g_kbd_tail = (g_kbd_tail + 1) & 127;
-
-    return c;
+    return cast(char, 0);
 }
 
 
@@ -83,30 +100,38 @@ proc keyboard_handle_irq() -> void {
 
     var scancode: u8 = io_inb(0x60);
 
+    g_kbd_lock.acquire_irq();
+
     if (scancode == 0x2A || scancode == 0x36) {
         g_kbd_shift = true;
+        g_kbd_lock.release_irq();
         return;
     }
 
     if (scancode == 0xAA || scancode == 0xB6) {
         g_kbd_shift = false;
+        g_kbd_lock.release_irq();
         return;
     }
 
     if (scancode == 0x3A) {
         g_kbd_caps = !g_kbd_caps;
+        g_kbd_lock.release_irq();
         return;
     }
 
     if ((scancode & 0x80) != 0) {
+        g_kbd_lock.release_irq();
         return;
     }
 
     var c: char = keyboard_translate(scancode);
 
     if (c != cast(char, 0)) {
-        keyboard_push(c);
+        keyboard_push_unlocked(c);
     }
+
+    g_kbd_lock.release_irq();
 
     return;
 }

@@ -1,7 +1,11 @@
 import "multiboot.kl";
 import "pmm.kl";
+import "sync/spinlock.kl";
+
 
 var g_kernel_pml4: u64*;
+var g_vmm_lock:    Spinlock;
+
 
 proc vmm_zero_page(page_ptr: u64*) -> void {
     var i: u64 = 0;
@@ -14,19 +18,23 @@ proc vmm_zero_page(page_ptr: u64*) -> void {
     return;
 }
 
+
 proc vmm_invlpg(virt_addr: u64) -> void {
     asm "invlpg [rdi]";
     return;
 }
+
 
 proc vmm_set_cr3(pml4_phys: u64) -> void {
     asm "mov cr3, rdi";
     return;
 }
 
+
 proc vmm_get_cr3() -> u64 {
     return asm "mov rax, cr3" -> u64;
 }
+
 
 proc vmm_get_or_create_next_table(current_table: u64*, index: u64, flags: u64, create_if_missing: u64) -> u64* {
     var entry: u64 = current_table[index];
@@ -64,28 +72,29 @@ proc vmm_get_or_create_next_table(current_table: u64*, index: u64, flags: u64, c
     return new_table_ptr;
 }
 
-proc vmm_map_page(pml4: u64*, virt_addr: u64, phys_addr: u64, flags: u64) -> u64 {
+
+proc vmm_map_page_unlocked(pml4: u64*, virt_addr: u64, phys_addr: u64, flags: u64) -> u64 {
     var aligned_virt: u64 = virt_addr & 0xFFFFFFFFFFFFF000;
     var aligned_phys: u64 = phys_addr & 0x000FFFFFFFFFF000;
 
-    var pml4_idx: u64 = (aligned_virt >> 39) & 511;
-    var pdpt_idx: u64 = (aligned_virt >> 30) & 511;
-    var pd_idx: u64   = (aligned_virt >> 21) & 511;
-    var pt_idx: u64   = (aligned_virt >> 12) & 511;
+    var pml4_idx: u64     = (aligned_virt >> 39) & 511;
+    var pdpt_idx: u64     = (aligned_virt >> 30) & 511;
+    var pd_idx: u64       = (aligned_virt >> 21) & 511;
+    var pt_idx: u64       = (aligned_virt >> 12) & 511;
 
-    var pdpt: u64* = vmm_get_or_create_next_table(pml4, pml4_idx, flags, 1);
+    var pdpt: u64*        = vmm_get_or_create_next_table(pml4, pml4_idx, flags, 1);
 
     if (cast(u64, pdpt) == 0) {
         return 0;
     }
 
-    var pd: u64* = vmm_get_or_create_next_table(pdpt, pdpt_idx, flags, 1);
+    var pd: u64*          = vmm_get_or_create_next_table(pdpt, pdpt_idx, flags, 1);
 
     if (cast(u64, pd) == 0) {
         return 0;
     }
 
-    var pt: u64* = vmm_get_or_create_next_table(pd, pd_idx, flags, 1);
+    var pt: u64*          = vmm_get_or_create_next_table(pd, pd_idx, flags, 1);
 
     if (cast(u64, pt) == 0) {
         return 0;
@@ -98,27 +107,37 @@ proc vmm_map_page(pml4: u64*, virt_addr: u64, phys_addr: u64, flags: u64) -> u64
     return 1;
 }
 
-proc vmm_unmap_page(pml4: u64*, virt_addr: u64) -> void {
+
+proc vmm_map_page(pml4: u64*, virt_addr: u64, phys_addr: u64, flags: u64) -> u64 {
+    g_vmm_lock.acquire_irq();
+    var status: u64 = vmm_map_page_unlocked(pml4, virt_addr, phys_addr, flags);
+    g_vmm_lock.release_irq();
+
+    return status;
+}
+
+
+proc vmm_unmap_page_unlocked(pml4: u64*, virt_addr: u64) -> void {
     var aligned_virt: u64 = virt_addr & 0xFFFFFFFFFFFFF000;
 
-    var pml4_idx: u64 = (aligned_virt >> 39) & 511;
-    var pdpt_idx: u64 = (aligned_virt >> 30) & 511;
-    var pd_idx: u64   = (aligned_virt >> 21) & 511;
-    var pt_idx: u64   = (aligned_virt >> 12) & 511;
+    var pml4_idx: u64     = (aligned_virt >> 39) & 511;
+    var pdpt_idx: u64     = (aligned_virt >> 30) & 511;
+    var pd_idx: u64       = (aligned_virt >> 21) & 511;
+    var pt_idx: u64       = (aligned_virt >> 12) & 511;
 
-    var pdpt: u64* = vmm_get_or_create_next_table(pml4, pml4_idx, 0, 0);
+    var pdpt: u64*        = vmm_get_or_create_next_table(pml4, pml4_idx, 0, 0);
 
     if (cast(u64, pdpt) == 0) {
         return;
     }
 
-    var pd: u64* = vmm_get_or_create_next_table(pdpt, pdpt_idx, 0, 0);
+    var pd: u64*          = vmm_get_or_create_next_table(pdpt, pdpt_idx, 0, 0);
 
     if (cast(u64, pd) == 0) {
         return;
     }
 
-    var pt: u64* = vmm_get_or_create_next_table(pd, pd_idx, 0, 0);
+    var pt: u64*          = vmm_get_or_create_next_table(pd, pd_idx, 0, 0);
 
     if (cast(u64, pt) == 0) {
         return;
@@ -131,61 +150,88 @@ proc vmm_unmap_page(pml4: u64*, virt_addr: u64) -> void {
     return;
 }
 
+
+proc vmm_unmap_page(pml4: u64*, virt_addr: u64) -> void {
+    g_vmm_lock.acquire_irq();
+    vmm_unmap_page_unlocked(pml4, virt_addr);
+    g_vmm_lock.release_irq();
+
+    return;
+}
+
+
 proc vmm_virt_to_phys(pml4: u64*, virt_addr: u64) -> u64 {
     var aligned_virt: u64 = virt_addr & 0xFFFFFFFFFFFFF000;
     var page_offset: u64  = virt_addr & 4095;
 
-    var pml4_idx: u64 = (aligned_virt >> 39) & 511;
-    var pdpt_idx: u64 = (aligned_virt >> 30) & 511;
-    var pd_idx: u64   = (aligned_virt >> 21) & 511;
-    var pt_idx: u64   = (aligned_virt >> 12) & 511;
+    var pml4_idx: u64     = (aligned_virt >> 39) & 511;
+    var pdpt_idx: u64     = (aligned_virt >> 30) & 511;
+    var pd_idx: u64       = (aligned_virt >> 21) & 511;
+    var pt_idx: u64       = (aligned_virt >> 12) & 511;
 
-    var pdpt: u64* = vmm_get_or_create_next_table(pml4, pml4_idx, 0, 0);
+    g_vmm_lock.acquire_irq();
+
+    var pdpt: u64*        = vmm_get_or_create_next_table(pml4, pml4_idx, 0, 0);
 
     if (cast(u64, pdpt) == 0) {
+        g_vmm_lock.release_irq();
         return 0;
     }
 
-    var pd: u64* = vmm_get_or_create_next_table(pdpt, pdpt_idx, 0, 0);
+    var pd: u64*          = vmm_get_or_create_next_table(pdpt, pdpt_idx, 0, 0);
 
     if (cast(u64, pd) == 0) {
+        g_vmm_lock.release_irq();
         return 0;
     }
 
-    var pt: u64* = vmm_get_or_create_next_table(pd, pd_idx, 0, 0);
+    var pt: u64*          = vmm_get_or_create_next_table(pd, pd_idx, 0, 0);
 
     if (cast(u64, pt) == 0) {
+        g_vmm_lock.release_irq();
         return 0;
     }
 
-    var entry: u64 = pt[pt_idx];
+    var entry: u64        = pt[pt_idx];
 
     if ((entry & 1) == 0) {
+        g_vmm_lock.release_irq();
         return 0;
     }
+
+    g_vmm_lock.release_irq();
 
     return (entry & 0x000FFFFFFFFFF000) | page_offset;
 }
 
+
 proc vmm_map_range(pml4: u64*, virt_start: u64, phys_start: u64, size: u64, flags: u64) -> u64 {
+    g_vmm_lock.acquire_irq();
+
     var offset: u64 = 0;
 
     while (offset < size) {
-        var status: u64 = vmm_map_page(pml4, virt_start + offset, phys_start + offset, flags);
+        var status: u64 = vmm_map_page_unlocked(pml4, virt_start + offset, phys_start + offset, flags);
 
         if (status == 0) {
+            g_vmm_lock.release_irq();
             return 0;
         }
 
         offset = offset + 4096;
     }
 
+    g_vmm_lock.release_irq();
+
     return 1;
 }
 
+
 proc vmm_init(kernel_end: u64) -> u64* {
-    var pml4_phys: u64 = pmm_alloc_page();
-    var pml4_ptr: u64* = cast(u64*, pml4_phys);
+    g_vmm_lock.init();
+
+    var pml4_phys: u64   = pmm_alloc_page();
+    var pml4_ptr: u64*   = cast(u64*, pml4_phys);
 
     vmm_zero_page(pml4_ptr);
 

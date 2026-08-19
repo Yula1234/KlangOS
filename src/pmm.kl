@@ -1,51 +1,58 @@
 import "multiboot.kl";
+import "sync/spinlock.kl";
 
-var g_pmm_bitmap: [16384]u64;
-var g_pmm_max_frames: u64;
+
+var g_pmm_bitmap:      [16384]u64;
+var g_pmm_max_frames:  u64;
 var g_pmm_total_pages: u64;
-var g_pmm_used_pages: u64;
-var g_pmm_free_pages: u64;
+var g_pmm_used_pages:  u64;
+var g_pmm_free_pages:  u64;
+var g_pmm_lock:        Spinlock;
+
 
 proc pmm_set_bit(frame_idx: u64) -> void {
-    var word_idx = frame_idx / 64;
-    var bit_idx = frame_idx % 64;
-    var mask = cast(u64, 1) << bit_idx;
+    var word_idx: u64 = frame_idx / 64;
+    var bit_idx: u64  = frame_idx % 64;
+    var mask: u64     = cast(u64, 1) << bit_idx;
 
     g_pmm_bitmap[word_idx] = g_pmm_bitmap[word_idx] | mask;
-    
+
     return;
 }
+
 
 proc pmm_clear_bit(frame_idx: u64) -> void {
-    var word_idx = frame_idx / 64;
-    var bit_idx = frame_idx % 64;
-    var mask = cast(u64, 1) << bit_idx;
+    var word_idx: u64 = frame_idx / 64;
+    var bit_idx: u64  = frame_idx % 64;
+    var mask: u64     = cast(u64, 1) << bit_idx;
 
     g_pmm_bitmap[word_idx] = g_pmm_bitmap[word_idx] & ~mask;
-    
+
     return;
 }
 
+
 proc pmm_test_bit(frame_idx: u64) -> u64 {
-    var word_idx = frame_idx / 64;
-    var bit_idx = frame_idx % 64;
-    var mask = cast(u64, 1) << bit_idx;
+    var word_idx: u64 = frame_idx / 64;
+    var bit_idx: u64  = frame_idx % 64;
+    var mask: u64     = cast(u64, 1) << bit_idx;
 
     if ((g_pmm_bitmap[word_idx] & mask) != 0) {
         return 1;
     }
-    
+
     return 0;
 }
 
+
 proc pmm_init_region(base: u64, length: u64) -> void {
-    var align_base = (base + 4095) / 4096;
-    var count = length / 4096;
-    var i: u64 = 0;
+    var align_base: u64 = (base + 4095) / 4096;
+    var count: u64      = length / 4096;
+    var i: u64          = 0;
 
     while (i < count) {
-        var frame = align_base + i;
-        
+        var frame: u64 = align_base + i;
+
         if (frame < g_pmm_max_frames) {
             pmm_clear_bit(frame);
             g_pmm_used_pages = g_pmm_used_pages - 1;
@@ -58,14 +65,15 @@ proc pmm_init_region(base: u64, length: u64) -> void {
     return;
 }
 
+
 proc pmm_deinit_region(base: u64, length: u64) -> void {
-    var align_base = base / 4096;
-    var count = (length + 4095) / 4096;
-    var i: u64 = 0;
+    var align_base: u64 = base / 4096;
+    var count: u64      = (length + 4095) / 4096;
+    var i: u64          = 0;
 
     while (i < count) {
-        var frame = align_base + i;
-        
+        var frame: u64 = align_base + i;
+
         if (frame < g_pmm_max_frames) {
             if (pmm_test_bit(frame) == 0) {
                 pmm_set_bit(frame);
@@ -80,11 +88,14 @@ proc pmm_deinit_region(base: u64, length: u64) -> void {
     return;
 }
 
+
 proc pmm_init(mbi: MultibootInfo*, kernel_end: u64) -> void {
-    g_pmm_max_frames = 1048576;
+    g_pmm_lock.init();
+
+    g_pmm_max_frames  = 1048576;
     g_pmm_total_pages = 0;
-    g_pmm_used_pages = g_pmm_max_frames;
-    g_pmm_free_pages = 0;
+    g_pmm_used_pages  = g_pmm_max_frames;
+    g_pmm_free_pages  = 0;
 
     var w: u64 = 0;
 
@@ -93,14 +104,16 @@ proc pmm_init(mbi: MultibootInfo*, kernel_end: u64) -> void {
         w += 1;
     }
 
-    var current_addr = cast(u64, mbi.mmap_addr);
-    var end_addr = current_addr + cast(u64, mbi.mmap_length);
+    var current_addr: u64 = cast(u64, mbi.mmap_addr);
+    var end_addr: u64     = current_addr + cast(u64, mbi.mmap_length);
 
     while (current_addr < end_addr) {
         var entry: MultibootMmapEntry* = cast(MultibootMmapEntry*, current_addr);
+
         if (entry.type == 1) {
             pmm_init_region(entry.addr, entry.len);
         }
+
         current_addr = current_addr + cast(u64, entry.size) + 4;
     }
 
@@ -114,48 +127,60 @@ proc pmm_init(mbi: MultibootInfo*, kernel_end: u64) -> void {
     return;
 }
 
+
 proc pmm_alloc_page() -> u64 {
+    g_pmm_lock.acquire_irq();
+
     var w: u64 = 0;
 
     while (w < 16384) {
         if (g_pmm_bitmap[w] != 0xFFFFFFFFFFFFFFFF) {
             var b: u64 = 0;
-    
+
             while (b < 64) {
-                var mask = cast(u64, 1) << b;
-    
+                var mask: u64 = cast(u64, 1) << b;
+
                 if ((g_pmm_bitmap[w] & mask) == 0) {
-                    var frame_idx = w * 64 + b;
-    
+                    var frame_idx: u64 = w * 64 + b;
+
                     pmm_set_bit(frame_idx);
-    
+
                     g_pmm_used_pages = g_pmm_used_pages + 1;
                     g_pmm_free_pages = g_pmm_free_pages - 1;
-    
+
+                    g_pmm_lock.release_irq();
+
                     return frame_idx * 4096;
                 }
-    
+
                 b += 1;
             }
         }
-    
+
         w += 1;
     }
-    
+
+    g_pmm_lock.release_irq();
+
     return 0;
 }
 
+
 proc pmm_free_page(phys_addr: u64) -> void {
-    var frame_idx = phys_addr / 4096;
+    var frame_idx: u64 = phys_addr / 4096;
+
+    g_pmm_lock.acquire_irq();
 
     if (frame_idx < g_pmm_max_frames) {
         if (pmm_test_bit(frame_idx) != 0) {
             pmm_clear_bit(frame_idx);
-    
+
             g_pmm_used_pages = g_pmm_used_pages - 1;
             g_pmm_free_pages = g_pmm_free_pages + 1;
         }
     }
-    
+
+    g_pmm_lock.release_irq();
+
     return;
 }

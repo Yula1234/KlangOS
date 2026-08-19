@@ -1,5 +1,7 @@
 import "vmm.kl";
 import "pmm.kl";
+import "sync/spinlock.kl";
+
 
 packed struct HeapBlock {
     size:    u64,
@@ -8,9 +10,12 @@ packed struct HeapBlock {
     prev:    HeapBlock*
 }
 
-var g_heap_start: u64;
-var g_heap_end: u64;
+
+var g_heap_start:       u64;
+var g_heap_end:         u64;
 var g_heap_first_block: HeapBlock*;
+var g_heap_lock:        Spinlock;
+
 
 proc heap_memset(dst: u8*, val: u8, len: u64) -> void {
     var i: u64 = 0;
@@ -23,6 +28,7 @@ proc heap_memset(dst: u8*, val: u8, len: u64) -> void {
     return;
 }
 
+
 proc heap_memcpy(dst: u8*, src: u8*, len: u64) -> void {
     var i: u64 = 0;
 
@@ -34,10 +40,11 @@ proc heap_memcpy(dst: u8*, src: u8*, len: u64) -> void {
     return;
 }
 
-proc heap_expand(needed_bytes: u64) -> u64 {
-    var pages: u64 = (needed_bytes + 4095) / 4096;
-    var old_end: u64 = g_heap_end;
-    var p: u64 = 0;
+
+proc heap_expand_unlocked(needed_bytes: u64) -> u64 {
+    var pages: u64    = (needed_bytes + 4095) / 4096;
+    var old_end: u64  = g_heap_end;
+    var p: u64        = 0;
 
     while (p < pages) {
         var phys: u64 = pmm_alloc_page();
@@ -56,7 +63,7 @@ proc heap_expand(needed_bytes: u64) -> u64 {
         p += 1;
     }
 
-    var new_block_size: u64 = (pages * 4096) - 32;
+    var new_block_size: u64   = (pages * 4096) - 32;
     var new_block: HeapBlock* = cast(HeapBlock*, old_end);
 
     new_block.size    = new_block_size;
@@ -88,15 +95,21 @@ proc heap_expand(needed_bytes: u64) -> u64 {
     return 1;
 }
 
+
 proc heap_init(initial_pages: u64) -> u64 {
+    g_heap_lock.init();
+
     g_heap_start       = 0x10000000;
     g_heap_end         = 0x10000000;
     g_heap_first_block = cast(HeapBlock*, 0);
 
-    var status: u64 = heap_expand(initial_pages * 4096);
+    g_heap_lock.acquire_irq();
+    var status: u64 = heap_expand_unlocked(initial_pages * 4096);
+    g_heap_lock.release_irq();
 
     return status;
 }
+
 
 proc kalloc(size: u64) -> u8* {
     if (size == 0) {
@@ -104,13 +117,16 @@ proc kalloc(size: u64) -> u8* {
     }
 
     var aligned_size: u64 = (size + 15) & ~15;
-    var curr: HeapBlock*  = g_heap_first_block;
+
+    g_heap_lock.acquire_irq();
+
+    var curr: HeapBlock* = g_heap_first_block;
 
     while (cast(u64, curr) != 0) {
         if (curr.is_free == 1) {
             if (curr.size >= aligned_size) {
                 if (curr.size >= (aligned_size + 32 + 16)) {
-                    var split_addr: u64        = cast(u64, curr) + 32 + aligned_size;
+                    var split_addr: u64         = cast(u64, curr) + 32 + aligned_size;
                     var split_block: HeapBlock* = cast(HeapBlock*, split_addr);
 
                     split_block.size    = curr.size - 32 - aligned_size;
@@ -128,6 +144,8 @@ proc kalloc(size: u64) -> u8* {
 
                 curr.is_free = 0;
 
+                g_heap_lock.release_irq();
+
                 return cast(u8*, cast(u64, curr) + 32);
             }
         }
@@ -135,14 +153,18 @@ proc kalloc(size: u64) -> u8* {
         curr = curr.next;
     }
 
-    var expand_status: u64 = heap_expand(aligned_size + 32);
+    var expand_status: u64 = heap_expand_unlocked(aligned_size + 32);
 
     if (expand_status == 0) {
+        g_heap_lock.release_irq();
         return cast(u8*, 0);
     }
 
+    g_heap_lock.release_irq();
+
     return kalloc(size);
 }
+
 
 proc kfree(ptr: u8*) -> void {
     if (cast(u64, ptr) == 0) {
@@ -150,6 +172,8 @@ proc kfree(ptr: u8*) -> void {
     }
 
     var block: HeapBlock* = cast(HeapBlock*, cast(u64, ptr) - 32);
+
+    g_heap_lock.acquire_irq();
 
     block.is_free = 1;
 
@@ -179,8 +203,11 @@ proc kfree(ptr: u8*) -> void {
         }
     }
 
+    g_heap_lock.release_irq();
+
     return;
 }
+
 
 proc krealloc(ptr: u8*, new_size: u64) -> u8* {
     if (cast(u64, ptr) == 0) {
@@ -209,6 +236,7 @@ proc krealloc(ptr: u8*, new_size: u64) -> u8* {
 
     return new_ptr;
 }
+
 
 proc kcalloc(count: u64, size: u64) -> u8* {
     var total: u64 = count * size;

@@ -1,6 +1,7 @@
 import "heap.kl";
 import "thread.kl";
 import "isr.kl";
+import "sync/spinlock.kl";
 
 
 var g_thread_list_head: Thread*;
@@ -9,9 +10,10 @@ var g_current_thread:   Thread*;
 var g_idle_thread:      Thread*;
 var g_next_thread_id:   u64;
 var g_sched_active:     bool;
+var g_sched_lock:       Spinlock;
 
 
-proc sched_enqueue(t: Thread*) -> void {
+proc sched_enqueue_unlocked(t: Thread*) -> void {
     t.next = cast(Thread*, 0);
 
     if (cast(u64, g_thread_list_head) == 0) {
@@ -28,6 +30,8 @@ proc sched_enqueue(t: Thread*) -> void {
 
 
 proc sched_init() -> void {
+    g_sched_lock.init();
+
     g_thread_list_head   = cast(Thread*, 0);
     g_thread_list_tail   = cast(Thread*, 0);
     g_next_thread_id     = 1;
@@ -45,7 +49,9 @@ proc sched_init() -> void {
     g_idle_thread        = idle;
     g_current_thread     = idle;
 
-    sched_enqueue(idle);
+    g_sched_lock.acquire_irq();
+    sched_enqueue_unlocked(idle);
+    g_sched_lock.release_irq();
 
     g_sched_active       = true;
 
@@ -86,9 +92,6 @@ proc thread_create(entry_point: u64, arg: u64) -> Thread* {
     frame.rsp      = stack_top;
     frame.ss       = 0x10;
 
-    t.id           = g_next_thread_id;
-    g_next_thread_id = g_next_thread_id + 1;
-
     t.rsp          = frame_addr;
     t.state        = THREAD_STATE_READY;
     t.stack_base   = cast(u64, stack_mem);
@@ -96,7 +99,14 @@ proc thread_create(entry_point: u64, arg: u64) -> Thread* {
     t.sleep_ticks  = 0;
     t.next         = cast(Thread*, 0);
 
-    sched_enqueue(t);
+    g_sched_lock.acquire_irq();
+
+    t.id           = g_next_thread_id;
+    g_next_thread_id = g_next_thread_id + 1;
+
+    sched_enqueue_unlocked(t);
+
+    g_sched_lock.release_irq();
 
     return t;
 }
@@ -106,6 +116,8 @@ proc sched_schedule(current_rsp: u64) -> u64 {
     if (!g_sched_active) {
         return current_rsp;
     }
+
+    g_sched_lock.acquire_irq();
 
     if (cast(u64, g_current_thread) != 0) {
         g_current_thread.rsp = current_rsp;
@@ -169,7 +181,11 @@ proc sched_schedule(current_rsp: u64) -> u64 {
     g_current_thread       = next_thread;
     g_current_thread.state = THREAD_STATE_RUNNING;
 
-    return g_current_thread.rsp;
+    var new_rsp: u64       = g_current_thread.rsp;
+
+    g_sched_lock.release_irq();
+
+    return new_rsp;
 }
 
 
@@ -181,8 +197,12 @@ proc thread_yield() -> void {
 
 
 proc thread_sleep(ticks: u64) -> void {
+    g_sched_lock.acquire_irq();
+
     g_current_thread.sleep_ticks = g_timer_ticks + ticks;
     g_current_thread.state       = THREAD_STATE_SLEEPING;
+
+    g_sched_lock.release_irq();
 
     thread_yield();
 
@@ -191,7 +211,11 @@ proc thread_sleep(ticks: u64) -> void {
 
 
 proc thread_exit() -> void {
+    g_sched_lock.acquire_irq();
+
     g_current_thread.state = THREAD_STATE_DEAD;
+
+    g_sched_lock.release_irq();
 
     thread_yield();
 
