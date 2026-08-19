@@ -80,6 +80,8 @@ isr_common_stub:
     cld
     call isr_handler
 
+    mov rsp, rax
+
     pop r15
     pop r14
     pop r13

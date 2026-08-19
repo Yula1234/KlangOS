@@ -1,0 +1,62 @@
+import "heap.kl";
+
+
+const THREAD_STATE_READY:     u32 = 1;
+const THREAD_STATE_RUNNING:   u32 = 2;
+const THREAD_STATE_BLOCKED:   u32 = 3;
+const THREAD_STATE_SLEEPING:  u32 = 4;
+const THREAD_STATE_DEAD:      u32 = 5;
+
+const THREAD_STACK_SIZE:      u64 = 16384;
+
+
+packed struct Thread {
+    id:          u64,
+    rsp:         u64,
+    state:       u32,
+    stack_base:  u64,
+    stack_size:  u64,
+    sleep_ticks: u64,
+    next:        Thread*
+}
+
+
+proc Thread_is_ready(t: Thread*) -> bool {
+    return t.state == THREAD_STATE_READY;
+}
+
+
+proc Thread_is_running(t: Thread*) -> bool {
+    return t.state == THREAD_STATE_RUNNING;
+}
+
+
+proc Thread_is_sleeping(t: Thread*) -> bool {
+    return t.state == THREAD_STATE_SLEEPING;
+}
+
+
+proc Thread_is_dead(t: Thread*) -> bool {
+    return t.state == THREAD_STATE_DEAD;
+}
+
+
+proc Thread_block(t: Thread*) -> void {
+    t.state = THREAD_STATE_BLOCKED;
+
+    return;
+}
+
+
+proc Thread_unblock(t: Thread*) -> void {
+    t.state = THREAD_STATE_READY;
+
+    return;
+}
+
+
+proc Thread_terminate(t: Thread*) -> void {
+    t.state = THREAD_STATE_DEAD;
+
+    return;
+}

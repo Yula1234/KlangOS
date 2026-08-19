@@ -1,6 +1,8 @@
 import "vga.kl";
 import "apic.kl";
 import "keyboard.kl";
+import "sched.kl";
+
 
 packed struct InterruptFrame {
     r15:      u64,
@@ -27,7 +29,9 @@ packed struct InterruptFrame {
     ss:       u64
 }
 
+
 var g_timer_ticks: u64;
+
 
 proc get_exception_name(int_no: u64) -> char* {
     if (int_no == 0)  return "#DE (Divide Error)";
@@ -51,6 +55,7 @@ proc get_exception_name(int_no: u64) -> char* {
 
     return "Unknown Exception";
 }
+
 
 proc isr_panic(frame: InterruptFrame*) -> void {
     vga_clear(0x4F);
@@ -103,37 +108,44 @@ proc isr_panic(frame: InterruptFrame*) -> void {
     return;
 }
 
-proc isr_handler(frame: InterruptFrame*) -> void {
+
+proc isr_handler(frame: InterruptFrame*) -> u64 {
+    var raw_frame_rsp: u64 = cast(u64, frame);
+
     if (frame.int_no == 2) {
         var port61: u8 = io_inb(0x61);
         io_outb(0x61, port61 | 0x80);
         io_outb(0x61, port61 & 0x7F);
-        return;
+        return raw_frame_rsp;
     }
 
     if (frame.int_no < 32) {
         isr_panic(frame);
-        return;
+        return raw_frame_rsp;
     }
 
     if (frame.int_no == 32) {
         g_timer_ticks = g_timer_ticks + 1;
-
         lapic_eoi();
-        return;
+
+        if (g_sched_active) {
+            return sched_schedule(raw_frame_rsp);
+        }
+
+        return raw_frame_rsp;
     }
 
     if (frame.int_no == 33) {
         keyboard_handle_irq();
         lapic_eoi();
-        return;
+        return raw_frame_rsp;
     }
 
-
     if (frame.int_no == 255) {
-        return;
+        return raw_frame_rsp;
     }
 
     lapic_eoi();
-    return;
+
+    return raw_frame_rsp;
 }

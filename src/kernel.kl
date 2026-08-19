@@ -9,6 +9,47 @@ import "heap.kl";
 import "io.kl";
 import "apic.kl";
 import "keyboard.kl";
+import "thread.kl";
+import "sched.kl";
+
+
+proc task_worker_a(arg: u64) -> void {
+    var counter: u64 = 0;
+
+    vga_print("Task A (Counter) : ", 0x1F, 21, 4);
+
+    while (1) {
+        counter = counter + 1;
+        vga_print_dec(counter, 0x1E, 21, 23);
+        thread_sleep(10);
+    }
+
+    return;
+}
+
+
+proc task_worker_b(arg: u64) -> void {
+    var step: u64 = 0;
+    var anim: char* = "|/-\\";
+
+    vga_print("Task B (Spinner) : [ ]", 0x1F, 22, 4);
+
+    while (1) {
+        var char_idx: u64 = step & 3;
+        var glyph: char = anim[char_idx];
+
+        var single_buf: [2]char;
+        single_buf[0] = glyph;
+        single_buf[1] = cast(char, 0);
+
+        vga_print(&single_buf[0], 0x1A, 22, 24);
+
+        step = step + 1;
+        thread_sleep(5);
+    }
+
+    return;
+}
 
 
 proc kmain(magic: u32, mbi: MultibootInfo*) -> void {
@@ -75,32 +116,37 @@ proc kmain(magic: u32, mbi: MultibootInfo*) -> void {
     apic_init();
     vga_print("[OK] APIC Subsystem (LAPIC & I/O APIC) Online", 0x1A, 20, 4);
 
-    lapic_timer_init(32, 100000, true);
-    vga_print("[OK] APIC Periodic Timer Active (Vector 32)", 0x1A, 21, 4);
+    var bsp_id: u8 = cast(u8, lapic_get_id());
+
+    ioapic_route_isa_irq(0, 32, bsp_id);
+    ioapic_route_isa_irq(2, 32, bsp_id);
+
+    lapic_timer_init(32, 50000, true);
 
     keyboard_init();
-
-    var bsp_id: u8 = cast(u8, lapic_get_id());
     ioapic_route_isa_irq(1, 33, bsp_id);
-    vga_print("[OK] PS/2 Keyboard Active (Vector 33)", 0x1A, 22, 4);
+
+    sched_init();
+
+    thread_create(cast(u64, task_worker_a), 0);
+    thread_create(cast(u64, task_worker_b), 0);
 
     asm "sti";
-    vga_print("[OK] CPU Hardware Interrupts Enabled (STI)", 0x1A, 23, 4);
 
-    vga_print("Type here: ", 0x1E, 24, 4);
+    vga_print("Interactive CLI  : ", 0x1E, 24, 4);
 
-    var input_col: u64 = 15;
+    var input_col: u64 = 23;
 
     while (1) {
         var c: char = keyboard_getchar();
 
         if (c == cast(char, 8)) {
-            if (input_col > 15) {
+            if (input_col > 23) {
                 input_col = input_col - 1;
                 vga_print(" ", 0x1F, 24, input_col);
             }
         } else if (c == cast(char, 10)) {
-            while (input_col > 15) {
+            while (input_col > 23) {
                 input_col = input_col - 1;
                 vga_print(" ", 0x1F, 24, input_col);
             }

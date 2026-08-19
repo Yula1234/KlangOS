@@ -1,0 +1,203 @@
+import "heap.kl";
+import "thread.kl";
+import "isr.kl";
+
+
+var g_thread_list_head: Thread*;
+var g_thread_list_tail: Thread*;
+var g_current_thread:   Thread*;
+var g_idle_thread:      Thread*;
+var g_next_thread_id:   u64;
+var g_sched_active:     bool;
+
+
+proc sched_enqueue(t: Thread*) -> void {
+    t.next = cast(Thread*, 0);
+
+    if (cast(u64, g_thread_list_head) == 0) {
+        g_thread_list_head = t;
+        g_thread_list_tail = t;
+        return;
+    }
+
+    g_thread_list_tail.next = t;
+    g_thread_list_tail      = t;
+
+    return;
+}
+
+
+proc sched_init() -> void {
+    g_thread_list_head   = cast(Thread*, 0);
+    g_thread_list_tail   = cast(Thread*, 0);
+    g_next_thread_id     = 1;
+    g_sched_active       = false;
+
+    var idle: Thread*    = cast(Thread*, kalloc(64));
+    idle.id              = 0;
+    idle.rsp             = 0;
+    idle.state           = THREAD_STATE_RUNNING;
+    idle.stack_base      = 0;
+    idle.stack_size      = 0;
+    idle.sleep_ticks     = 0;
+    idle.next            = cast(Thread*, 0);
+
+    g_idle_thread        = idle;
+    g_current_thread     = idle;
+
+    sched_enqueue(idle);
+
+    g_sched_active       = true;
+
+    return;
+}
+
+
+proc thread_create(entry_point: u64, arg: u64) -> Thread* {
+    var t: Thread*      = cast(Thread*, kalloc(64));
+    var stack_mem: u8*  = kalloc(THREAD_STACK_SIZE);
+    var stack_top: u64  = (cast(u64, stack_mem) + THREAD_STACK_SIZE) & ~15;
+
+    var frame_addr: u64 = stack_top - 176;
+    var frame: InterruptFrame* = cast(InterruptFrame*, frame_addr);
+
+    frame.r15      = 0;
+    frame.r14      = 0;
+    frame.r13      = 0;
+    frame.r12      = 0;
+    frame.r11      = 0;
+    frame.r10      = 0;
+    frame.r9       = 0;
+    frame.r8       = 0;
+    frame.rbp      = 0;
+    frame.rdi      = arg;
+    frame.rsi      = 0;
+    frame.rdx      = 0;
+    frame.rcx      = 0;
+    frame.rbx      = 0;
+    frame.rax      = 0;
+
+    frame.int_no   = 32;
+    frame.err_code = 0;
+
+    frame.rip      = entry_point;
+    frame.cs       = 0x08;
+    frame.rflags   = 0x0202;
+    frame.rsp      = stack_top;
+    frame.ss       = 0x10;
+
+    t.id           = g_next_thread_id;
+    g_next_thread_id = g_next_thread_id + 1;
+
+    t.rsp          = frame_addr;
+    t.state        = THREAD_STATE_READY;
+    t.stack_base   = cast(u64, stack_mem);
+    t.stack_size   = THREAD_STACK_SIZE;
+    t.sleep_ticks  = 0;
+    t.next         = cast(Thread*, 0);
+
+    sched_enqueue(t);
+
+    return t;
+}
+
+
+proc sched_schedule(current_rsp: u64) -> u64 {
+    if (!g_sched_active) {
+        return current_rsp;
+    }
+
+    if (cast(u64, g_current_thread) != 0) {
+        g_current_thread.rsp = current_rsp;
+
+        if (g_current_thread.state == THREAD_STATE_RUNNING) {
+            g_current_thread.state = THREAD_STATE_READY;
+        }
+    }
+
+    var curr: Thread* = g_thread_list_head;
+
+    while (cast(u64, curr) != 0) {
+        if (curr.state == THREAD_STATE_SLEEPING) {
+            if (g_timer_ticks >= curr.sleep_ticks) {
+                curr.state = THREAD_STATE_READY;
+            }
+        }
+
+        curr = curr.next;
+    }
+
+    var next_thread: Thread* = cast(Thread*, 0);
+    var start: Thread*       = g_current_thread.next;
+
+    if (cast(u64, start) == 0) {
+        start = g_thread_list_head;
+    }
+
+    curr = start;
+
+    while (cast(u64, curr) != 0) {
+        if (curr.state == THREAD_STATE_READY) {
+            next_thread = curr;
+            break;
+        }
+
+        curr = curr.next;
+    }
+
+    if (cast(u64, next_thread) == 0) {
+        curr = g_thread_list_head;
+
+        while (cast(u64, curr) != cast(u64, start)) {
+            if (cast(u64, curr) == 0) {
+                break;
+            }
+
+            if (curr.state == THREAD_STATE_READY) {
+                next_thread = curr;
+                break;
+            }
+
+            curr = curr.next;
+        }
+    }
+
+    if (cast(u64, next_thread) == 0) {
+        next_thread = g_idle_thread;
+    }
+
+    g_current_thread       = next_thread;
+    g_current_thread.state = THREAD_STATE_RUNNING;
+
+    return g_current_thread.rsp;
+}
+
+
+proc thread_yield() -> void {
+    asm "int 32";
+
+    return;
+}
+
+
+proc thread_sleep(ticks: u64) -> void {
+    g_current_thread.sleep_ticks = g_timer_ticks + ticks;
+    g_current_thread.state       = THREAD_STATE_SLEEPING;
+
+    thread_yield();
+
+    return;
+}
+
+
+proc thread_exit() -> void {
+    g_current_thread.state = THREAD_STATE_DEAD;
+
+    thread_yield();
+
+    while (1) {
+        asm "hlt";
+    }
+
+    return;
+}
