@@ -145,11 +145,13 @@ proc lapic_get_svr() -> u32 {
 
 proc lapic_init() -> void {
     var apic_base_msr: u64 = msr_read(MSR_APIC_BASE);
-    var phys_addr: u64     = apic_base_msr & APIC_BASE_MASK;
+    var raw_phys: u64      = apic_base_msr & APIC_BASE_MASK;
 
-    if (phys_addr == 0) {
-        phys_addr = DEFAULT_LAPIC_PHYS;
+    if (raw_phys == 0) {
+        raw_phys = DEFAULT_LAPIC_PHYS;
     }
+
+    var phys_addr: PhysAddr = cast(PhysAddr, raw_phys);
 
     g_lapic_base = phys_to_virt(phys_addr);
 
@@ -298,9 +300,11 @@ proc ioapic_route_isa_irq(irq: u8, vector: u8, dest_apic_id: u8) -> void {
 proc ioapic_init() -> void {
     g_ioapic_lock.init();
 
-    g_ioapic_base = phys_to_virt(DEFAULT_IOAPIC_PHYS);
+    var ioapic_phys: PhysAddr = cast(PhysAddr, DEFAULT_IOAPIC_PHYS);
 
-    vmm_map_page(g_kernel_pml4, g_ioapic_base, DEFAULT_IOAPIC_PHYS, 27);
+    g_ioapic_base = phys_to_virt(ioapic_phys);
+
+    vmm_map_page(g_kernel_pml4, g_ioapic_base, ioapic_phys, 27);
 
     var ver_reg: u32 = ioapic_read(IOAPIC_VERSION);
     g_ioapic_max_redirections = ((ver_reg >> 16) & 0xFF) + 1;

@@ -10,7 +10,7 @@ var g_vga_lock: Spinlock;
 
 
 proc vga_get_buffer() -> u16* {
-    return cast(u16*, phys_to_virt(VGA_BUFFER_PHYS));
+    return cast(u16*, phys_to_virt(cast(PhysAddr, VGA_BUFFER_PHYS)));
 }
 
 

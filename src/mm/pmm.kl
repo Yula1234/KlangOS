@@ -2,6 +2,8 @@ import "boot/multiboot.kl";
 
 import "sync/spinlock.kl";
 
+distinct PhysAddr = u64;
+
 var g_pmm_bitmap:      [16384]u64;
 var g_pmm_max_frames:  u64;
 var g_pmm_total_pages: u64;
@@ -119,7 +121,7 @@ proc pmm_init(mbi: MultibootInfo*, kernel_end: u64) -> void {
 }
 
 
-proc pmm_alloc_page() -> (u64, bool) {
+proc pmm_alloc_page() -> (PhysAddr, bool) {
     g_pmm_lock.acquire_irq();
 
     for (var w: u64 = 0; w < 16384; w += 1) {
@@ -137,7 +139,7 @@ proc pmm_alloc_page() -> (u64, bool) {
 
                     g_pmm_lock.release_irq();
 
-                    return (frame_idx * 4096, true);
+                    return (cast(PhysAddr, frame_idx * 4096), true);
                 }
             }
         }
@@ -145,12 +147,12 @@ proc pmm_alloc_page() -> (u64, bool) {
 
     g_pmm_lock.release_irq();
 
-    return (0, false);
+    return (cast(PhysAddr, 0), false);
 }
 
 
-proc pmm_free_page(phys_addr: u64) -> void {
-    var frame_idx: u64 = phys_addr / 4096;
+proc pmm_free_page(phys_addr: PhysAddr) -> void {
+    var frame_idx: u64 = cast(u64, phys_addr) / 4096;
 
     g_pmm_lock.acquire_irq();
 
