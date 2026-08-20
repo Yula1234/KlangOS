@@ -202,7 +202,7 @@ proc sched_schedule(current_rsp: u64) -> u64 {
 
 
 proc thread_yield() -> void {
-    asm "int 32";
+    asm "int 34";
 
     return;
 }

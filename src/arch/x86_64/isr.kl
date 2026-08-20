@@ -183,6 +183,14 @@ proc isr_handler(frame: InterruptFrame*) -> u64 {
             return raw_frame_rsp;
         }
 
+        case 34: {
+            if (g_sched_active) {
+                return sched_schedule(raw_frame_rsp);
+            }
+
+            return raw_frame_rsp;
+        }
+
         case 255: {
             return raw_frame_rsp;
         }
