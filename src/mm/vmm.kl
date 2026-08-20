@@ -33,14 +33,14 @@ proc vmm_invlpg(virt_addr: VirtAddr) -> void {
 
 
 proc vmm_set_cr3(pml4_phys: PhysAddr) -> void {
-    asm "mov cr3, rdi";
+    asm ("mov cr3, rax" : in(pml4_phys) "rax");
 
     return;
 }
 
 
 proc vmm_get_cr3() -> PhysAddr {
-    return cast(PhysAddr, asm "mov rax, cr3" -> u64);
+    return asm ("mov rax, cr3" : out "rax") -> PhysAddr;
 }
 
 

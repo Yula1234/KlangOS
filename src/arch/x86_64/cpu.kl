@@ -1,12 +1,10 @@
 proc cpu_save_flags_and_cli() -> u64 {
-    asm "pushfq";
-    return asm "pop rax\n    cli" -> u64;
+    return asm ("pushfq\n    pop rax\n    cli" : out "rax") -> u64;
 }
 
 
 proc cpu_restore_flags(flags: u64) -> void {
-    asm "push rdi";
-    asm "popfq";
+    asm ("push rax\n    popfq" : in(flags) "rax");
 
     return;
 }
@@ -37,9 +35,12 @@ proc cpu_hlt() -> void {
 
 
 proc cpu_rdtsc() -> u64 {
-    asm "rdtsc";
-    asm "shl rdx, 32";
-    return asm "or rax, rdx" -> u64;
+    var low:  u32;
+    var high: u32;
+
+    asm ("rdtsc" : out(low) "eax", out(high) "edx");
+
+    return (cast(u64, high) << 32) | cast(u64, low);
 }
 
 proc cpu_sti_and_hlt() -> void {

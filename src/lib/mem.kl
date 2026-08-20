@@ -1,17 +1,12 @@
 proc memset(dst: u8*, val: u8, count: u64) -> u8* {
-    asm "mov al, sil";
-    asm "mov rcx, rdx";
-    asm "cld";
-    asm "rep stosb";
+    asm ("cld\n    rep stosb" : in(dst) "rdi", in(val) "al", in(count) "rcx" : clobber "memory");
 
     return dst;
 }
 
 
 proc memcpy(dst: u8*, src: u8*, count: u64) -> u8* {
-    asm "mov rcx, rdx";
-    asm "cld";
-    asm "rep movsb";
+    asm ("cld\n    rep movsb" : in(dst) "rdi", in(src) "rsi", in(count) "rcx" : clobber "memory");
 
     return dst;
 }
@@ -154,10 +149,10 @@ proc memzero(dst: u8*, count: u64) -> void {
 
 
 proc memzero_page(page_ptr: u64*) -> void {
-    asm "mov rax, 0";
-    asm "mov rcx, 512";
-    asm "cld";
-    asm "rep stosq";
+    var zero:  u64 = 0;
+    var words: u64 = 512;
+
+    asm ("cld\n    rep stosq" : in(page_ptr) "rdi", in(zero) "rax", in(words) "rcx" : clobber "memory");
 
     return;
 }

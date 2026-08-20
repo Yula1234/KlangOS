@@ -111,9 +111,9 @@ proc vga_print_dec(val: u64, color: u8, line: u64, col: u64) -> void {
 
 
 proc vga_print_hex_unlocked(val: u64, color: u8, line: u64, col: u64) -> void {
-    var buf: [19]char;
+    var buf: char* = alloca(char, 20);
 
-    var len: u64 = itoa_hex(val, &buf[0], true);
+    var len: u64 = itoa_hex(val, buf, true);
 
     vga_print_unlocked(buf[0..len], color, line, col);
 

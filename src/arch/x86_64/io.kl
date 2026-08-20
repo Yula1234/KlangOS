@@ -21,42 +21,33 @@ const PORT_COM1:        u16 = 0x03F8;
 const PORT_COM2:        u16 = 0x02F8;
 
 proc io_outb(port: u16, val: u8) -> void {
-    asm "mov dx, di";
-    asm "mov al, sil";
-    asm "out dx, al";
+    asm ("out dx, al" : in(port) "dx", in(val) "al");
 
     return;
 }
 
 proc io_inb(port: u16) -> u8 {
-    asm "mov dx, di";
-    return asm "in al, dx" -> u8;
+    return asm ("in al, dx" : in(port) "dx" : out "al") -> u8;
 }
 
 proc io_outw(port: u16, val: u16) -> void {
-    asm "mov dx, di";
-    asm "mov ax, si";
-    asm "out dx, ax";
+    asm ("out dx, ax" : in(port) "dx", in(val) "ax");
 
     return;
 }
 
 proc io_inw(port: u16) -> u16 {
-    asm "mov dx, di";
-    return asm "in ax, dx" -> u16;
+    return asm ("in ax, dx" : in(port) "dx" : out "ax") -> u16;
 }
 
 proc io_outd(port: u16, val: u32) -> void {
-    asm "mov dx, di";
-    asm "mov eax, esi";
-    asm "out dx, eax";
+    asm ("out dx, eax" : in(port) "dx", in(val) "eax");
 
     return;
 }
 
 proc io_ind(port: u16) -> u32 {
-    asm "mov dx, di";
-    return asm "in eax, dx" -> u32;
+    return asm ("in eax, dx" : in(port) "dx" : out "eax") -> u32;
 }
 
 proc io_wait() -> void {
@@ -66,20 +57,13 @@ proc io_wait() -> void {
 }
 
 proc io_insb(port: u16, buffer: u8*, count: u64) -> void {
-    asm "mov rcx, rdx";
-    asm "mov dx, di";
-    asm "mov rdi, rsi";
-    asm "cld";
-    asm "rep insb";
+    asm ("cld\n    rep insb" : in(port) "dx", in(buffer) "rdi", in(count) "rcx" : clobber "memory");
 
     return;
 }
 
 proc io_outsb(port: u16, buffer: u8*, count: u64) -> void {
-    asm "mov rcx, rdx";
-    asm "mov dx, di";
-    asm "cld";
-    asm "rep outsb";
+    asm ("cld\n    rep outsb" : in(port) "dx", in(buffer) "rsi", in(count) "rcx" : clobber "memory");
 
     return;
 }

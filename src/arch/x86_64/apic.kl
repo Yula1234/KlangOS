@@ -49,19 +49,20 @@ var g_ioapic_lock:              Spinlock;
 
 
 proc msr_read(msr: u32) -> u64 {
-    asm "mov ecx, edi";
-    asm "rdmsr";
-    asm "shl rdx, 32";
-    return asm "or rax, rdx" -> u64;
+    var low:  u32;
+    var high: u32;
+
+    asm ("rdmsr" : in(msr) "ecx" : out(low) "eax", out(high) "edx");
+
+    return (cast(u64, high) << 32) | cast(u64, low);
 }
 
 
 proc msr_write(msr: u32, val: u64) -> void {
-    asm "mov ecx, edi";
-    asm "mov eax, esi";
-    asm "mov rdx, rsi";
-    asm "shr rdx, 32";
-    asm "wrmsr";
+    var low:  u32 = cast(u32, val & 0xFFFFFFFF);
+    var high: u32 = cast(u32, (val >> 32) & 0xFFFFFFFF);
+
+    asm ("wrmsr" : in(msr) "ecx", in(low) "eax", in(high) "edx");
 
     return;
 }
