@@ -15,12 +15,12 @@ var g_kernel_pml4: PageTable;
 var g_vmm_lock:    Spinlock;
 
 
-proc phys_to_virt(phys: PhysAddr) -> VirtAddr {
+@inline proc phys_to_virt(phys: PhysAddr) -> VirtAddr {
     return cast(u64, phys) + HHDM_OFFSET;
 }
 
 
-proc virt_to_phys(virt: VirtAddr) -> PhysAddr {
+@inline proc virt_to_phys(virt: VirtAddr) -> PhysAddr {
     return cast(PhysAddr, virt - HHDM_OFFSET);
 }
 

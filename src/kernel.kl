@@ -16,6 +16,9 @@ import "mm/pmm.kl";
 import "mm/vmm.kl";
 import "mm/heap.kl";
 
+@extern var stack_top: u8;
+@extern var isr_stub_table: [256]u64;
+@extern var _kernel_end: u8;
 
 proc task_worker_a(arg: u64) -> void {
     var counter: u64 = 0;
@@ -58,18 +61,14 @@ proc kmain(magic: u32, mbi: MultibootInfo*) -> void {
     vga_print("                Welcome to KlangOS                ", 0x1F, 2, 14);
     vga_print("==================================================", 0x1E, 3, 14);
 
-    asm "extern stack_top";
-    var kernel_stack_top: u64 = cast(u64, asm "lea rax, [rel stack_top]" -> u64);
+    var kernel_stack_top: u64 = cast(u64, &stack_top);
     gdt_init(kernel_stack_top);
     vga_print("[OK] GDT & TSS Initialized", 0x1A, 5, 4);
 
-    asm "extern isr_stub_table";
-    var isr_table: u64* = cast(u64*, asm "lea rax, [rel isr_stub_table]" -> u64);
-    idt_init(isr_table);
+    idt_init(&isr_stub_table[0]);
     vga_print("[OK] IDT (256 Gates) Initialized", 0x1A, 6, 4);
 
-    asm "extern _kernel_end";
-    var kernel_end: u64 = cast(u64, asm "lea rax, [rel _kernel_end]" -> u64);
+    var kernel_end: u64 = cast(u64, &_kernel_end);
     pmm_init(mbi, kernel_end);
     vga_print("[OK] PMM Physical Allocator Initialized", 0x1A, 7, 4);
 
@@ -77,7 +76,7 @@ proc kmain(magic: u32, mbi: MultibootInfo*) -> void {
     vga_print("[OK] VMM 4-Level Paging Initialized", 0x1A, 8, 4);
 
     heap_init(4);
-    vga_print("[OK] Kernel Heap Initialized (0x10000000)", 0x1A, 9, 4);
+    vga_print("[OK] Kernel Heap Initialized (0x10000000)", 0x1A, 10, 4);
 
     var ptr_a: u8* = kalloc(64);
     var ptr_b: u8* = kalloc(128);

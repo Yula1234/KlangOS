@@ -20,37 +20,37 @@ const PORT_POST_CHECK:  u16 = 0x0080;
 const PORT_COM1:        u16 = 0x03F8;
 const PORT_COM2:        u16 = 0x02F8;
 
-proc io_outb(port: u16, val: u8) -> void {
+@inline proc io_outb(port: u16, val: u8) -> void {
     asm ("out dx, al" : in(port) "dx", in(val) "al");
 
     return;
 }
 
-proc io_inb(port: u16) -> u8 {
+@inline proc io_inb(port: u16) -> u8 {
     return asm ("in al, dx" : in(port) "dx" : out "al") -> u8;
 }
 
-proc io_outw(port: u16, val: u16) -> void {
+@inline proc io_outw(port: u16, val: u16) -> void {
     asm ("out dx, ax" : in(port) "dx", in(val) "ax");
 
     return;
 }
 
-proc io_inw(port: u16) -> u16 {
+@inline proc io_inw(port: u16) -> u16 {
     return asm ("in ax, dx" : in(port) "dx" : out "ax") -> u16;
 }
 
-proc io_outd(port: u16, val: u32) -> void {
+@inline proc io_outd(port: u16, val: u32) -> void {
     asm ("out dx, eax" : in(port) "dx", in(val) "eax");
 
     return;
 }
 
-proc io_ind(port: u16) -> u32 {
+@inline proc io_ind(port: u16) -> u32 {
     return asm ("in eax, dx" : in(port) "dx" : out "eax") -> u32;
 }
 
-proc io_wait() -> void {
+@inline proc io_wait() -> void {
     asm "out 0x80, al";
 
     return;
