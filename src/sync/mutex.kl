@@ -13,13 +13,14 @@ packed struct Mutex {
 
     proc init(m: Mutex*) -> void {
         m.state.init(0);
+        
         m.holder = cast(Thread*, 0);
         m.waiters.init();
 
         return;
     }
 
-    proc is_locked(m: Mutex*) -> bool {
+    @inline proc is_locked(m: Mutex*) -> bool {
         return m.state.get() != 0;
     }
 

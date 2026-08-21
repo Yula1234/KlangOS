@@ -1,98 +1,163 @@
-proc atomic_xchg_32(ptr: u32*, val: u32) -> u32 {
-    asm "mov eax, esi";
-    return asm "xchg [rdi], eax" -> u32;
+@inline proc atomic_xchg_32(ptr: u32*, val: u32) -> u32 {
+    return asm ("xchg [rdi], eax" : in(ptr) "rdi", in(val) "eax" : out "eax" : clobber "memory") -> u32;
 }
 
-
-proc atomic_xchg_64(ptr: u64*, val: u64) -> u64 {
-    asm "mov rax, rsi";
-    return asm "xchg [rdi], rax" -> u64;
+@inline proc atomic_xchg_64(ptr: u64*, val: u64) -> u64 {
+    return asm ("xchg [rdi], rax" : in(ptr) "rdi", in(val) "rax" : out "rax" : clobber "memory") -> u64;
 }
 
-
-proc atomic_cas_32(ptr: u32*, expected: u32, desired: u32) -> u32 {
-    asm "mov eax, esi";
-    asm "mov edx, edx";
-    return asm "lock cmpxchg [rdi], edx" -> u32;
+@inline proc atomic_cas_32(ptr: u32*, expected: u32, desired: u32) -> u32 {
+    return asm ("lock cmpxchg [rdi], edx" : in(ptr) "rdi", in(expected) "eax", in(desired) "edx" : out "eax" : clobber "memory") -> u32;
 }
 
-
-proc atomic_add_32(ptr: u32*, val: u32) -> u32 {
-    asm "mov eax, esi";
-    return asm "lock xadd [rdi], eax" -> u32;
+@inline proc atomic_cas_64(ptr: u64*, expected: u64, desired: u64) -> u64 {
+    return asm ("lock cmpxchg [rdi], rdx" : in(ptr) "rdi", in(expected) "rax", in(desired) "rdx" : out "rax" : clobber "memory") -> u64;
 }
 
+@inline proc atomic_add_32(ptr: u32*, val: u32) -> u32 {
+    return asm ("lock xadd [rdi], eax" : in(ptr) "rdi", in(val) "eax" : out "eax" : clobber "memory") -> u32;
+}
 
-proc atomic_inc_32(ptr: u32*) -> void {
-    asm "lock inc dword [rdi]";
+@inline proc atomic_add_64(ptr: u64*, val: u64) -> u64 {
+    return asm ("lock xadd [rdi], rax" : in(ptr) "rdi", in(val) "rax" : out "rax" : clobber "memory") -> u64;
+}
+
+@inline proc atomic_inc_32(ptr: u32*) -> void {
+    asm ("lock inc dword [rdi]" : in(ptr) "rdi" : clobber "memory");
+
     return;
 }
 
+@inline proc atomic_dec_32(ptr: u32*) -> void {
+    asm ("lock dec dword [rdi]" : in(ptr) "rdi" : clobber "memory");
 
-proc atomic_dec_32(ptr: u32*) -> void {
-    asm "lock dec dword [rdi]";
+    return;
+}
+
+@inline proc atomic_inc_64(ptr: u64*) -> void {
+    asm ("lock inc qword [rdi]" : in(ptr) "rdi" : clobber "memory");
+
+    return;
+}
+
+@inline proc atomic_dec_64(ptr: u64*) -> void {
+    asm ("lock dec qword [rdi]" : in(ptr) "rdi" : clobber "memory");
+
     return;
 }
 
 packed struct Atomic {
     value: i32,
 
-    proc init(a: Atomic*, val: i32) -> void {
+    @inline proc init(a: Atomic*, val: i32) -> void {
         a.value = val;
 
         return;
     }
 
-    proc get(a: Atomic*) -> i32 {
+    @inline proc get(a: Atomic*) -> i32 {
         return a.value;
     }
 
-    proc set(a: Atomic*, val: i32) -> void {
+    @inline proc set(a: Atomic*, val: i32) -> void {
         a.value = val;
 
         return;
     }
 
-    proc xchg(a: Atomic*, val: i32) -> i32 {
-        asm "mov eax, esi";
-        return asm "xchg [rdi], eax" -> i32;
+    @inline proc xchg(a: Atomic*, val: i32) -> i32 {
+        return asm ("xchg [rdi], eax" : in(&a.value) "rdi", in(val) "eax" : out "eax" : clobber "memory") -> i32;
     }
 
-    proc cas(a: Atomic*, expected: i32, desired: i32) -> i32 {
-        asm "mov eax, esi";
-        return asm "lock cmpxchg [rdi], edx" -> i32;
+    @inline proc cas(a: Atomic*, expected: i32, desired: i32) -> i32 {
+        return asm ("lock cmpxchg [rdi], edx" : in(&a.value) "rdi", in(expected) "eax", in(desired) "edx" : out "eax" : clobber "memory") -> i32;
     }
 
-    proc add(a: Atomic*, val: i32) -> i32 {
-        asm "mov eax, esi";
-        return asm "lock xadd [rdi], eax" -> i32;
+    @inline proc add(a: Atomic*, val: i32) -> i32 {
+        return asm ("lock xadd [rdi], eax" : in(&a.value) "rdi", in(val) "eax" : out "eax" : clobber "memory") -> i32;
     }
 
-    proc sub(a: Atomic*, val: i32) -> i32 {
-        asm "mov eax, esi";
-        asm "neg eax";
-        return asm "lock xadd [rdi], eax" -> i32;
+    @inline proc sub(a: Atomic*, val: i32) -> i32 {
+        var neg_val: i32 = -val;
+
+        return asm ("lock xadd [rdi], eax" : in(&a.value) "rdi", in(neg_val) "eax" : out "eax" : clobber "memory") -> i32;
     }
 
-    proc inc(a: Atomic*) -> void {
-        asm "lock inc dword [rdi]";
+    @inline proc inc(a: Atomic*) -> void {
+        asm ("lock inc dword [rdi]" : in(&a.value) "rdi" : clobber "memory");
 
         return;
     }
 
-    proc dec(a: Atomic*) -> void {
-        asm "lock dec dword [rdi]";
+    @inline proc dec(a: Atomic*) -> void {
+        asm ("lock dec dword [rdi]" : in(&a.value) "rdi" : clobber "memory");
 
         return;
     }
 
-    proc dec_and_test(a: Atomic*) -> bool {
-        asm "lock dec dword [rdi]";
-        return asm "sete al" -> bool;
+    @inline proc dec_and_test(a: Atomic*) -> bool {
+        return asm ("lock dec dword [rdi]\n    sete al" : in(&a.value) "rdi" : out "al" : clobber "memory") -> bool;
     }
 
-    proc inc_and_test(a: Atomic*) -> bool {
-        asm "lock inc dword [rdi]";
-        return asm "sete al" -> bool;
+    @inline proc inc_and_test(a: Atomic*) -> bool {
+        return asm ("lock inc dword [rdi]\n    sete al" : in(&a.value) "rdi" : out "al" : clobber "memory") -> bool;
+    }
+}
+
+packed struct Atomic64 {
+    value: i64,
+
+    @inline proc init(a: Atomic64*, val: i64) -> void {
+        a.value = val;
+
+        return;
+    }
+
+    @inline proc get(a: Atomic64*) -> i64 {
+        return a.value;
+    }
+
+    @inline proc set(a: Atomic64*, val: i64) -> void {
+        a.value = val;
+
+        return;
+    }
+
+    @inline proc xchg(a: Atomic64*, val: i64) -> i64 {
+        return asm ("xchg [rdi], rax" : in(&a.value) "rdi", in(val) "rax" : out "rax" : clobber "memory") -> i64;
+    }
+
+    @inline proc cas(a: Atomic64*, expected: i64, desired: i64) -> i64 {
+        return asm ("lock cmpxchg [rdi], rdx" : in(&a.value) "rdi", in(expected) "rax", in(desired) "rdx" : out "rax" : clobber "memory") -> i64;
+    }
+
+    @inline proc add(a: Atomic64*, val: i64) -> i64 {
+        return asm ("lock xadd [rdi], rax" : in(&a.value) "rdi", in(val) "rax" : out "rax" : clobber "memory") -> i64;
+    }
+
+    @inline proc sub(a: Atomic64*, val: i64) -> i64 {
+        var neg_val: i64 = -val;
+
+        return asm ("lock xadd [rdi], rax" : in(&a.value) "rdi", in(neg_val) "rax" : out "rax" : clobber "memory") -> i64;
+    }
+
+    @inline proc inc(a: Atomic64*) -> void {
+        asm ("lock inc qword [rdi]" : in(&a.value) "rdi" : clobber "memory");
+
+        return;
+    }
+
+    @inline proc dec(a: Atomic64*) -> void {
+        asm ("lock dec qword [rdi]" : in(&a.value) "rdi" : clobber "memory");
+
+        return;
+    }
+
+    @inline proc dec_and_test(a: Atomic64*) -> bool {
+        return asm ("lock dec qword [rdi]\n    sete al" : in(&a.value) "rdi" : out "al" : clobber "memory") -> bool;
+    }
+
+    @inline proc inc_and_test(a: Atomic64*) -> bool {
+        return asm ("lock inc qword [rdi]\n    sete al" : in(&a.value) "rdi" : out "al" : clobber "memory") -> bool;
     }
 }
