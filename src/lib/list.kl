@@ -2,14 +2,14 @@ packed struct ListNode {
     next: ListNode*,
     prev: ListNode*,
 
-    proc init(node: ListNode*) -> void {
+    @inline proc init(node: ListNode*) -> void {
         node.next = node;
         node.prev = node;
 
         return;
     }
 
-    proc is_empty(node: ListNode*) -> bool {
+    @inline proc is_empty(node: ListNode*) -> bool {
         return node.next == node;
     }
 
