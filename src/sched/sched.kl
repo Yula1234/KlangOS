@@ -8,226 +8,291 @@ import "mm/heap.kl";
 
 import "thread.kl";
 
+const DEFAULT_RFLAGS:     u64 = 0x0202;
+const KERNEL_CS:          u64 = 0x08;
+const KERNEL_SS:          u64 = 0x10;
 
-var g_thread_list_head: ListNode;
-var g_current_thread:   Thread*;
-var g_idle_thread:      Thread*;
-var g_next_thread_id:   u64;
-var g_sched_active:     bool;
-var g_sched_lock:       Spinlock;
+const REAPER_SLEEP_TICKS: u64 = 50;
 
+struct SchedState {
+    threads:   ListNode,
+    current:   Thread*,
+    idle:      Thread*,
+    next_id:   u64,
+    is_active: bool,
 
-proc sched_reap_dead_threads() -> void {
-    g_sched_lock.acquire_irq();
+    proc init(s: SchedState*) -> void {
+        s.threads.init();
 
-    var curr_node: ListNode* = g_thread_list_head.next;
+        s.current   = cast(Thread*, 0);
+        s.idle      = cast(Thread*, 0);
+        s.next_id   = 1;
+        s.is_active = false;
 
-    while (curr_node != &g_thread_list_head) {
-        var next_node: ListNode* = curr_node.next;
-        var t: Thread*           = thread_from_sched_node(curr_node);
-
-        if (t.state == ThreadState.DEAD) {
-            curr_node.remove();
-
-            var stack_to_free: u8*  = cast(u8*, t.stack_base);
-            var thread_to_free: u8* = cast(u8*, t);
-
-            if (cast(u64, stack_to_free) != 0) {
-                kfree(stack_to_free);
-            }
-
-            kfree(thread_to_free);
-        }
-
-        curr_node = next_node;
+        return;
     }
 
-    g_sched_lock.release_irq();
+    @inline proc add_thread(s: SchedState*, t: Thread*) -> void {
+        s.threads.add_tail(&t.sched_node);
+
+        return;
+    }
+
+    proc wake_sleeping_threads(s: SchedState*, current_ticks: u64) -> void {
+        var curr_node: ListNode* = s.threads.next;
+
+        while (curr_node != &s.threads) {
+            var t: Thread* = thread_from_sched_node(curr_node);
+
+            if (t.is_sleeping()) {
+                if (current_ticks >= t.sleep_ticks) {
+                    t.unblock();
+                }
+            }
+
+            curr_node = curr_node.next;
+        }
+
+        return;
+    }
+
+    proc select_next_thread(s: SchedState*) -> Thread* {
+        if (cast(u64, s.current) == 0) {
+            return s.idle;
+        }
+
+        var start_node: ListNode* = s.current.sched_node.next;
+
+        if (start_node == &s.threads) {
+            start_node = s.threads.next;
+        }
+
+        var curr_node: ListNode* = start_node;
+
+        while (curr_node != &s.threads) {
+            var t: Thread* = thread_from_sched_node(curr_node);
+
+            if (t.is_ready()) {
+                return t;
+            }
+
+            curr_node = curr_node.next;
+        }
+
+        curr_node = s.threads.next;
+
+        while (curr_node != start_node) {
+            var t: Thread* = thread_from_sched_node(curr_node);
+
+            if (t.is_ready()) {
+                return t;
+            }
+
+            curr_node = curr_node.next;
+        }
+
+        return s.idle;
+    }
+
+    proc reap_dead_threads(s: SchedState*) -> void {
+        var curr_node: ListNode* = s.threads.next;
+
+        while (curr_node != &s.threads) {
+            var next_node: ListNode* = curr_node.next;
+            var t: Thread*           = thread_from_sched_node(curr_node);
+
+            if (t.is_dead()) {
+                curr_node.remove();
+
+                var stack_to_free:  u8* = cast(u8*, t.stack_base);
+                var thread_to_free: u8* = cast(u8*, t);
+
+                if (cast(u64, stack_to_free) != 0) {
+                    kfree(stack_to_free);
+                }
+
+                kfree(thread_to_free);
+            }
+
+            curr_node = next_node;
+        }
+
+        return;
+    }
+}
+
+var g_sched:          Spinlocked[SchedState];
+
+var g_current_thread: Thread*;
+var g_sched_active:   bool;
+
+@inline proc sched_reap_dead_threads() -> void {
+    var guard = g_sched.lock_irq();
+    defer guard.release_irq();
+
+    guard.get().reap_dead_threads();
 
     return;
 }
-
 
 proc reaper_task(arg: u64) -> void {
     while (1) {
         sched_reap_dead_threads();
-        thread_sleep(50);
+        thread_sleep(REAPER_SLEEP_TICKS);
     }
 
     return;
 }
 
-
 proc sched_init() -> void {
-    g_sched_lock.init();
-    g_thread_list_head.init();
-
-    g_next_thread_id = 1;
-    g_sched_active   = false;
+    g_sched.init();
 
     var idle: Thread* = cast(Thread*, kalloc(sizeof(Thread)));
+
     idle[0] = Thread {
-        id:    0,
-        state: ThreadState.RUNNING
+        id:         0,
+        rsp:        0,
+        state:      ThreadState.RUNNING,
+        stack_base: 0,
+        stack_size: 0
     };
 
     idle.sched_node.init();
     idle.wait_node.init();
 
-    g_idle_thread    = idle;
     g_current_thread = idle;
+    g_sched_active   = false;
 
-    g_sched_lock.acquire_irq();
-    g_thread_list_head.add_tail(&idle.sched_node);
-    g_sched_lock.release_irq();
+    {
+        var guard = g_sched.lock_irq();
+        defer guard.release_irq();
+
+        var sched: SchedState* = guard.get();
+        sched.init();
+
+        sched.idle    = idle;
+        sched.current = idle;
+
+        sched.add_thread(idle);
+    }
 
     thread_create(cast(u64, reaper_task), 0);
 
-    g_sched_active   = true;
+    {
+        var guard = g_sched.lock_irq();
+        defer guard.release_irq();
+
+        guard.get().is_active = true;
+    }
+
+    g_sched_active = true;
 
     return;
 }
 
 proc thread_create(entry_point: u64, arg: u64) -> Thread* {
-    var t: Thread*      = cast(Thread*, kalloc(sizeof(Thread)));
-    var stack_mem: u8*  = kalloc(THREAD_STACK_SIZE);
-    var stack_top: u64  = (cast(u64, stack_mem) + THREAD_STACK_SIZE) & ~15;
+    var t:         Thread* = cast(Thread*, kalloc(sizeof(Thread)));
+    var stack_mem: u8*     = kalloc(THREAD_STACK_SIZE);
+    var stack_top: u64     = (cast(u64, stack_mem) + THREAD_STACK_SIZE) & ~15;
 
-    var frame_addr: u64 = stack_top - sizeof(InterruptFrame);
+    var frame_addr: u64        = stack_top - sizeof(InterruptFrame);
     var frame: InterruptFrame* = cast(InterruptFrame*, frame_addr);
 
     frame[0] = InterruptFrame {
-        rdi: arg,
-        rip: entry_point,
-        rsp: stack_top
+        rdi:    arg,
+        rip:    entry_point,
+        cs:     KERNEL_CS,
+        rflags: DEFAULT_RFLAGS,
+        rsp:    stack_top,
+        ss:     KERNEL_SS
     };
 
+    var guard = g_sched.lock_irq();
+    defer guard.release_irq();
+
+    var sched: SchedState* = guard.get();
+
     t[0] = Thread {
-        id:         g_next_thread_id,
+        id:         sched.next_id,
         rsp:        frame_addr,
-        stack_base: cast(u64, stack_mem)
+        state:      ThreadState.READY,
+        stack_base: cast(u64, stack_mem),
+        stack_size: THREAD_STACK_SIZE
     };
 
     t.sched_node.init();
     t.wait_node.init();
 
-    g_sched_lock.acquire_irq();
-
-    g_next_thread_id = g_next_thread_id + 1;
-    g_thread_list_head.add_tail(&t.sched_node);
-
-    g_sched_lock.release_irq();
+    sched.next_id = sched.next_id + 1;
+    sched.add_thread(t);
 
     return t;
 }
-
 
 proc sched_schedule(current_rsp: u64) -> u64 {
     if (!g_sched_active) {
         return current_rsp;
     }
 
-    g_sched_lock.acquire_irq();
+    var guard = g_sched.lock_irq();
+    defer guard.release_irq();
 
-    if (cast(u64, g_current_thread) != 0) {
-        g_current_thread.rsp = current_rsp;
+    var sched: SchedState* = guard.get();
 
-        if (g_current_thread.state == ThreadState.RUNNING) {
-            g_current_thread.state = ThreadState.READY;
+    if (!sched.is_active) {
+        return current_rsp;
+    }
+
+    if (cast(u64, sched.current) != 0) {
+        sched.current.rsp = current_rsp;
+
+        if (sched.current.is_running()) {
+            sched.current.state = ThreadState.READY;
         }
     }
 
-    var curr_node: ListNode* = g_thread_list_head.next;
+    sched.wake_sleeping_threads(g_timer_ticks);
 
-    while (curr_node != &g_thread_list_head) {
-        var t: Thread* = thread_from_sched_node(curr_node);
+    var next_thread: Thread* = sched.select_next_thread();
 
-        if (t.state == ThreadState.SLEEPING) {
-            if (g_timer_ticks >= t.sleep_ticks) {
-                t.state = ThreadState.READY;
-            }
-        }
+    sched.current    = next_thread;
+    g_current_thread = next_thread;
 
-        curr_node = curr_node.next;
-    }
+    next_thread.state = ThreadState.RUNNING;
 
-    var next_thread: Thread* = cast(Thread*, 0);
-    var start_node: ListNode* = g_current_thread.sched_node.next;
-
-    if (start_node == &g_thread_list_head) {
-        start_node = g_thread_list_head.next;
-    }
-
-    curr_node = start_node;
-
-    while (curr_node != &g_thread_list_head) {
-        var t: Thread* = thread_from_sched_node(curr_node);
-
-        if (t.state == ThreadState.READY) {
-            next_thread = t;
-            break;
-        }
-
-        curr_node = curr_node.next;
-    }
-
-    if (cast(u64, next_thread) == 0) {
-        curr_node = g_thread_list_head.next;
-
-        while (curr_node != start_node) {
-            var t: Thread* = thread_from_sched_node(curr_node);
-
-            if (t.state == ThreadState.READY) {
-                next_thread = t;
-                break;
-            }
-
-            curr_node = curr_node.next;
-        }
-    }
-
-    if (cast(u64, next_thread) == 0) {
-        next_thread = g_idle_thread;
-    }
-
-    g_current_thread       = next_thread;
-    g_current_thread.state = ThreadState.RUNNING;
-
-    var new_rsp: u64       = g_current_thread.rsp;
-
-    g_sched_lock.release_irq();
-
-    return new_rsp;
+    return next_thread.rsp;
 }
 
-
-proc thread_yield() -> void {
+@inline proc thread_yield() -> void {
     asm "int 34";
 
     return;
 }
 
-
 proc thread_sleep(ticks: u64) -> void {
-    g_sched_lock.acquire_irq();
+    {
+        var guard = g_sched.lock_irq();
+        defer guard.release_irq();
 
-    g_current_thread.sleep_ticks = g_timer_ticks + ticks;
-    g_current_thread.state       = ThreadState.SLEEPING;
+        var sched: SchedState* = guard.get();
 
-    g_sched_lock.release_irq();
+        sched.current.sleep_ticks = g_timer_ticks + ticks;
+        sched.current.block();
+        sched.current.state = ThreadState.SLEEPING;
+    }
 
     thread_yield();
 
     return;
 }
 
-
 proc thread_exit() -> void {
-    g_sched_lock.acquire_irq();
+    {
+        var guard = g_sched.lock_irq();
+        defer guard.release_irq();
 
-    g_current_thread.state = ThreadState.DEAD;
-
-    g_sched_lock.release_irq();
+        guard.get().current.terminate();
+    }
 
     thread_yield();
 
