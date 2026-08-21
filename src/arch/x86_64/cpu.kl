@@ -1,34 +1,34 @@
-proc cpu_save_flags_and_cli() -> u64 {
+@inline proc cpu_save_flags_and_cli() -> u64 {
     return asm ("pushfq\n    pop rax\n    cli" : out "rax") -> u64;
 }
 
 
-proc cpu_restore_flags(flags: u64) -> void {
+@inline proc cpu_restore_flags(flags: u64) -> void {
     asm ("push rax\n    popfq" : in(flags) "rax");
 
     return;
 }
 
 
-proc cpu_cli() -> void {
+@inline proc cpu_cli() -> void {
     asm "cli";
     return;
 }
 
 
-proc cpu_sti() -> void {
+@inline proc cpu_sti() -> void {
     asm "sti";
     return;
 }
 
 
-proc cpu_pause() -> void {
+@inline proc cpu_pause() -> void {
     asm "pause";
     return;
 }
 
 
-proc cpu_hlt() -> void {
+@inline proc cpu_hlt() -> void {
     asm "hlt";
     return;
 }
@@ -43,7 +43,7 @@ proc cpu_rdtsc() -> u64 {
     return (cast(u64, high) << 32) | cast(u64, low);
 }
 
-proc cpu_sti_and_hlt() -> void {
+@inline proc cpu_sti_and_hlt() -> void {
     asm "sti\n    hlt";
 
     return;
