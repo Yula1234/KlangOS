@@ -6,37 +6,118 @@ import "sync/spinlock.kl";
 import "lib/str.kl";
 import "lib/ring_buffer.kl";
 
-const KBD_BUFFER_SIZE: u64 = 128;
+const KBD_BUFFER_CAPACITY:     u64 = 128;
 
-var g_kbd_storage:    [128]char;
-var g_kbd_queue:      RingBuffer[char];
+const PS2_PORT_DATA:           u16 = 0x0060;
+const PS2_PORT_STATUS:         u16 = 0x0064;
 
-var g_kbd_shift:      bool;
-var g_kbd_caps:       bool;
+const PS2_STATUS_OUTPUT_FULL:  u8  = 0x01;
+const PS2_KEY_RELEASE_BIT:     u8  = 0x80;
 
-var g_kbd_state_lock: Spinlock;
+const SCANCODE_LSHIFT_PRESS:   u8  = 0x2A;
+const SCANCODE_RSHIFT_PRESS:   u8  = 0x36;
+const SCANCODE_LSHIFT_RELEASE: u8  = 0xAA;
+const SCANCODE_RSHIFT_RELEASE: u8  = 0xB6;
+
+const SCANCODE_CAPSLOCK_PRESS: u8  = 0x3A;
+const SCANCODE_MAX_TRANSLATE:  u8  = 58;
+
+struct KeyboardState {
+    storage:    [128]char,
+    queue:      RingBuffer[char],
+    shift_held: bool,
+    caps_lock:  bool,
+
+    proc init(k: KeyboardState*) -> void {
+        k.queue.init(&k.storage[0], KBD_BUFFER_CAPACITY);
+
+        k.shift_held = false;
+        k.caps_lock  = false;
+
+        return;
+    }
+
+    proc translate(k: KeyboardState*, scancode: u8) -> char {
+        if (scancode > SCANCODE_MAX_TRANSLATE) {
+            return cast(char, 0);
+        }
+
+        if (k.shift_held) {
+            var map_shift: char* = "\0\x1B!@#$%^&*()_+\x08\tQWERTYUIOP{}\n\0ASDFGHJKL:\x22~\0|ZXCVBNM<>?\0*\0 \0";
+            return map_shift[scancode];
+        }
+
+        var map_normal: char* = "\0\x1B1234567890-=\x08\tqwertyuiop[]\n\0asdfghjkl;\x27`\0\\zxcvbnm,./\0*\0 \0";
+        var c: char           = map_normal[scancode];
+
+        if (k.caps_lock) {
+            return to_upper(c);
+        }
+
+        return c;
+    }
+
+    proc handle_scancode(k: KeyboardState*, scancode: u8) -> void {
+        if (scancode == SCANCODE_LSHIFT_PRESS || scancode == SCANCODE_RSHIFT_PRESS) {
+            k.shift_held = true;
+            return;
+        }
+
+        if (scancode == SCANCODE_LSHIFT_RELEASE || scancode == SCANCODE_RSHIFT_RELEASE) {
+            k.shift_held = false;
+            return;
+        }
+
+        if (scancode == SCANCODE_CAPSLOCK_PRESS) {
+            k.caps_lock = !k.caps_lock;
+            return;
+        }
+
+        if ((scancode & PS2_KEY_RELEASE_BIT) != 0) {
+            return;
+        }
+
+        var c: char = k.translate(scancode);
+
+        if (c != cast(char, 0)) {
+            k.queue.push(c);
+        }
+
+        return;
+    }
+}
+
+var g_keyboard: Spinlocked[KeyboardState];
 
 proc keyboard_init() -> void {
-    g_kbd_queue.init(&g_kbd_storage[0], KBD_BUFFER_SIZE);
+    g_keyboard.init();
 
-    g_kbd_state_lock.init();
+    var guard = g_keyboard.lock_irq();
+    defer guard.release_irq();
 
-    g_kbd_shift = false;
-    g_kbd_caps  = false;
+    guard.get().init();
 
     return;
 }
 
-proc keyboard_has_char() -> bool {
-    return !g_kbd_queue.is_empty();
+@inline proc keyboard_has_char() -> bool {
+    var guard = g_keyboard.lock_irq();
+    defer guard.release_irq();
+
+    return !guard.get().queue.is_empty();
 }
 
 proc keyboard_getchar() -> char {
     while (1) {
-        var (c, ok) = g_kbd_queue.pop();
+        {
+            var guard = g_keyboard.lock_irq();
+            defer guard.release_irq();
 
-        if (ok) {
-            return c;
+            var (c, ok) = guard.get().queue.pop();
+
+            if (ok) {
+                return c;
+            }
         }
 
         cpu_sti_and_hlt();
@@ -45,62 +126,26 @@ proc keyboard_getchar() -> char {
     return cast(char, 0);
 }
 
-proc keyboard_translate(scancode: u8) -> char {
-    if (scancode > 58) {
-        return cast(char, 0);
-    }
-
-    if (g_kbd_shift) {
-        var map_shift: char* = "\0\x1B!@#$%^&*()_+\x08\tQWERTYUIOP{}\n\0ASDFGHJKL:\x22~\0|ZXCVBNM<>?\0*\0 \0";
-        return map_shift[scancode];
-    }
-
-    var map_normal: char* = "\0\x1B1234567890-=\x08\tqwertyuiop[]\n\0asdfghjkl;\x27`\0\\zxcvbnm,./\0*\0 \0";
-    var c: char = map_normal[scancode];
-
-    if (g_kbd_caps) {
-        return to_upper(c);
-    }
-
-    return c;
-}
-
 proc keyboard_handle_irq() -> void {
-    var status: u8 = io_inb(0x64);
+    var status: u8 = io_inb(PS2_PORT_STATUS);
 
-    if ((status & 1) == 0) {
+    if ((status & PS2_STATUS_OUTPUT_FULL) == 0) {
         return;
     }
 
-    var scancode: u8 = io_inb(0x60);
+    var scancode: u8 = io_inb(PS2_PORT_DATA);
 
-    g_kbd_state_lock.acquire_irq();
-    defer g_kbd_state_lock.release_irq();
+    var guard = g_keyboard.lock_irq();
+    defer guard.release_irq();
 
-    if (scancode == 0x2A || scancode == 0x36) {
-        g_kbd_shift = true;
-        return;
-    }
-
-    if (scancode == 0xAA || scancode == 0xB6) {
-        g_kbd_shift = false;
-        return;
-    }
-
-    if (scancode == 0x3A) {
-        g_kbd_caps = !g_kbd_caps;
-        return;
-    }
-
-    if ((scancode & 0x80) != 0) {
-        return;
-    }
-
-    var c: char = keyboard_translate(scancode);
-
-    if (c != cast(char, 0)) {
-        g_kbd_queue.push(c);
-    }
+    guard.get().handle_scancode(scancode);
 
     return;
+}
+
+proc keyboard_translate(scancode: u8) -> char {
+    var guard = g_keyboard.lock_irq();
+    defer guard.release_irq();
+
+    return guard.get().translate(scancode);
 }
