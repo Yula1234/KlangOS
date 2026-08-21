@@ -1,73 +1,49 @@
 import "arch/x86_64/io.kl";
+import "arch/x86_64/cpu.kl";
 
 import "sync/spinlock.kl";
 
 import "lib/str.kl";
+import "lib/ring_buffer.kl";
 
-var g_kbd_buffer: [128]char;
-var g_kbd_head:   u32;
-var g_kbd_tail:   u32;
-var g_kbd_shift:  bool;
-var g_kbd_caps:   bool;
-var g_kbd_lock:   Spinlock;
+const KBD_BUFFER_SIZE: u64 = 128;
 
+var g_kbd_storage:    [128]char;
+var g_kbd_queue:      RingBuffer[char];
+
+var g_kbd_shift:      bool;
+var g_kbd_caps:       bool;
+
+var g_kbd_state_lock: Spinlock;
 
 proc keyboard_init() -> void {
-    g_kbd_lock.init();
+    g_kbd_queue.init(&g_kbd_storage[0], KBD_BUFFER_SIZE);
 
-    g_kbd_head  = 0;
-    g_kbd_tail  = 0;
+    g_kbd_state_lock.init();
+
     g_kbd_shift = false;
     g_kbd_caps  = false;
 
     return;
 }
 
-
-proc keyboard_push_unlocked(c: char) -> void {
-    if (c == cast(char, 0)) {
-        return;
-    }
-
-    var next_head: u32 = (g_kbd_head + 1) & 127;
-
-    if (next_head != g_kbd_tail) {
-        g_kbd_buffer[g_kbd_head] = c;
-        g_kbd_head = next_head;
-    }
-
-    return;
-}
-
-
 proc keyboard_has_char() -> bool {
-    g_kbd_lock.acquire_irq();
-    var has: bool = g_kbd_head != g_kbd_tail;
-    g_kbd_lock.release_irq();
-
-    return has;
+    return !g_kbd_queue.is_empty();
 }
-
 
 proc keyboard_getchar() -> char {
     while (1) {
-        g_kbd_lock.acquire_irq();
+        var (c, ok) = g_kbd_queue.pop();
 
-        if (g_kbd_head != g_kbd_tail) {
-            var c: char = g_kbd_buffer[g_kbd_tail];
-            g_kbd_tail  = (g_kbd_tail + 1) & 127;
-
-            g_kbd_lock.release_irq();
+        if (ok) {
             return c;
         }
 
-        g_kbd_lock.release();
         cpu_sti_and_hlt();
     }
 
     return cast(char, 0);
 }
-
 
 proc keyboard_translate(scancode: u8) -> char {
     if (scancode > 58) {
@@ -89,7 +65,6 @@ proc keyboard_translate(scancode: u8) -> char {
     return c;
 }
 
-
 proc keyboard_handle_irq() -> void {
     var status: u8 = io_inb(0x64);
 
@@ -99,38 +74,33 @@ proc keyboard_handle_irq() -> void {
 
     var scancode: u8 = io_inb(0x60);
 
-    g_kbd_lock.acquire_irq();
+    g_kbd_state_lock.acquire_irq();
+    defer g_kbd_state_lock.release_irq();
 
     if (scancode == 0x2A || scancode == 0x36) {
         g_kbd_shift = true;
-        g_kbd_lock.release_irq();
         return;
     }
 
     if (scancode == 0xAA || scancode == 0xB6) {
         g_kbd_shift = false;
-        g_kbd_lock.release_irq();
         return;
     }
 
     if (scancode == 0x3A) {
         g_kbd_caps = !g_kbd_caps;
-        g_kbd_lock.release_irq();
         return;
     }
 
     if ((scancode & 0x80) != 0) {
-        g_kbd_lock.release_irq();
         return;
     }
 
     var c: char = keyboard_translate(scancode);
 
     if (c != cast(char, 0)) {
-        keyboard_push_unlocked(c);
+        g_kbd_queue.push(c);
     }
-
-    g_kbd_lock.release_irq();
 
     return;
 }
