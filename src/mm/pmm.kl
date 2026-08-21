@@ -4,169 +4,205 @@ import "sync/spinlock.kl";
 
 distinct PhysAddr = u64;
 
-@align(4096)
-var g_pmm_bitmap:      [16384]u64;
-var g_pmm_max_frames:  u64;
-var g_pmm_total_pages: u64;
-var g_pmm_used_pages:  u64;
-var g_pmm_free_pages:  u64;
-var g_pmm_lock:        Spinlock;
+const PMM_PAGE_SIZE:        u64 = 4096;
+const PMM_PAGE_MASK:        u64 = 4095;
+const PMM_PAGE_SHIFT:       u64 = 12;
 
+const PMM_BITS_PER_WORD:    u64 = 64;
+const PMM_WORD_SHIFT:       u64 = 6;
+const PMM_WORD_MASK:        u64 = 63;
 
-proc pmm_set_bit(frame_idx: u64) -> void {
-    var word_idx: u64 = frame_idx / 64;
-    var bit_idx: u64  = frame_idx % 64;
-    var mask: u64     = cast(u64, 1) << bit_idx;
+const PMM_BITMAP_WORDS:     u64 = 16384;
+const PMM_MAX_FRAMES_COUNT: u64 = 1048576;
 
-    g_pmm_bitmap[word_idx] = g_pmm_bitmap[word_idx] | mask;
+const PMM_WORD_FULL:        u64 = 0xFFFFFFFFFFFFFFFF;
 
-    return;
-}
+struct PmmState {
+    bitmap:      [16384]u64,
+    max_frames:  u64,
+    total_pages: u64,
+    used_pages:  u64,
+    free_pages:  u64,
 
+    @inline proc set_frame(s: PmmState*, frame_idx: u64) -> void {
+        var word_idx: u64 = frame_idx >> PMM_WORD_SHIFT;
+        var bit_idx:  u64 = frame_idx & PMM_WORD_MASK;
 
-proc pmm_clear_bit(frame_idx: u64) -> void {
-    var word_idx: u64 = frame_idx / 64;
-    var bit_idx: u64  = frame_idx % 64;
-    var mask: u64     = cast(u64, 1) << bit_idx;
+        var mask:     u64 = cast(u64, 1) << bit_idx;
 
-    g_pmm_bitmap[word_idx] = g_pmm_bitmap[word_idx] & ~mask;
+        s.bitmap[word_idx] = s.bitmap[word_idx] | mask;
 
-    return;
-}
-
-
-proc pmm_test_bit(frame_idx: u64) -> u64 {
-    var word_idx: u64 = frame_idx / 64;
-    var bit_idx: u64  = frame_idx % 64;
-    var mask: u64     = cast(u64, 1) << bit_idx;
-
-    if ((g_pmm_bitmap[word_idx] & mask) != 0) {
-        return 1;
+        return;
     }
 
-    return 0;
-}
+    @inline proc clear_frame(s: PmmState*, frame_idx: u64) -> void {
+        var word_idx: u64 = frame_idx >> PMM_WORD_SHIFT;
+        var bit_idx:  u64 = frame_idx & PMM_WORD_MASK;
 
+        var mask:     u64 = cast(u64, 1) << bit_idx;
 
-proc pmm_init_region(base: u64, length: u64) -> void {
-    var align_base: u64 = (base + 4095) / 4096;
-    var count: u64      = length / 4096;
+        s.bitmap[word_idx] = s.bitmap[word_idx] & ~mask;
 
-    for (var i: u64 = 0; i < count; i += 1) {
-        var frame: u64 = align_base + i;
-
-        if (frame < g_pmm_max_frames) {
-            pmm_clear_bit(frame);
-            g_pmm_used_pages = g_pmm_used_pages - 1;
-            g_pmm_free_pages = g_pmm_free_pages + 1;
-        }
+        return;
     }
 
-    return;
-}
+    @inline proc test_frame(s: PmmState*, frame_idx: u64) -> bool {
+        var word_idx: u64 = frame_idx >> PMM_WORD_SHIFT;
+        var bit_idx:  u64 = frame_idx & PMM_WORD_MASK;
 
+        var mask:     u64 = cast(u64, 1) << bit_idx;
 
-proc pmm_deinit_region(base: u64, length: u64) -> void {
-    var align_base: u64 = base / 4096;
-    var count: u64      = (length + 4095) / 4096;
+        return (s.bitmap[word_idx] & mask) != 0;
+    }
 
-    for (var i: u64 = 0; i < count; i += 1) {
-        var frame: u64 = align_base + i;
+    proc mark_range_free(s: PmmState*, base: u64, length: u64) -> void {
+        var start_frame: u64 = (base + PMM_PAGE_MASK) >> PMM_PAGE_SHIFT;
+        var count:       u64 = length >> PMM_PAGE_SHIFT;
 
-        if (frame < g_pmm_max_frames) {
-            if (pmm_test_bit(frame) == 0) {
-                pmm_set_bit(frame);
-                g_pmm_used_pages = g_pmm_used_pages + 1;
-                g_pmm_free_pages = g_pmm_free_pages - 1;
+        for (var i: u64 = 0; i < count; i += 1) {
+            var frame: u64 = start_frame + i;
+
+            if (frame < s.max_frames) {
+                if (s.test_frame(frame)) {
+                    s.clear_frame(frame);
+
+                    s.used_pages = s.used_pages - 1;
+                    s.free_pages = s.free_pages + 1;
+                }
             }
         }
+
+        return;
     }
 
-    return;
+    proc mark_range_used(s: PmmState*, base: u64, length: u64) -> void {
+        var start_frame: u64 = base >> PMM_PAGE_SHIFT;
+        var count:       u64 = (length + PMM_PAGE_MASK) >> PMM_PAGE_SHIFT;
+
+        for (var i: u64 = 0; i < count; i += 1) {
+            var frame: u64 = start_frame + i;
+
+            if (frame < s.max_frames) {
+                if (!s.test_frame(frame)) {
+                    s.set_frame(frame);
+                    s.used_pages = s.used_pages + 1;
+                    s.free_pages = s.free_pages - 1;
+                }
+            }
+        }
+
+        return;
+    }
 }
 
+@align(4096)
+var g_pmm: Spinlocked[PmmState];
 
 proc pmm_init(mbi: MultibootInfo*, kernel_end: u64) -> void {
-    g_pmm_lock.init();
+    g_pmm.init();
 
-    g_pmm_max_frames  = 1048576;
-    g_pmm_total_pages = 0;
-    g_pmm_used_pages  = g_pmm_max_frames;
-    g_pmm_free_pages  = 0;
+    var guard = g_pmm.lock_irq();
+    defer guard.release_irq();
 
-    for (var w: u64 = 0; w < 16384; w += 1) {
-        g_pmm_bitmap[w] = 0xFFFFFFFFFFFFFFFF;
+    var pmm: PmmState* = guard.get();
+
+    pmm.max_frames  = PMM_MAX_FRAMES_COUNT;
+    pmm.total_pages = 0;
+    pmm.used_pages  = PMM_MAX_FRAMES_COUNT;
+    pmm.free_pages  = 0;
+
+    for (var w: u64 = 0; w < PMM_BITMAP_WORDS; w += 1) {
+        pmm.bitmap[w] = PMM_WORD_FULL;
     }
 
     var current_addr: u64 = cast(u64, mbi.mmap_addr);
-    var end_addr: u64     = current_addr + cast(u64, mbi.mmap_length);
+    var end_addr:     u64 = current_addr + cast(u64, mbi.mmap_length);
 
     while (current_addr < end_addr) {
         var entry: MultibootMmapEntry* = cast(MultibootMmapEntry*, current_addr);
 
         if (entry.type_ == 1) {
-            pmm_init_region(entry.addr, entry.len);
+            pmm.mark_range_free(entry.addr, entry.len);
         }
 
         current_addr = current_addr + cast(u64, entry.size) + 4;
     }
 
-    g_pmm_total_pages = g_pmm_used_pages + g_pmm_free_pages;
+    pmm.total_pages = pmm.used_pages + pmm.free_pages;
 
-    pmm_deinit_region(0, 0x100000);
-    pmm_deinit_region(0x100000, kernel_end - 0x100000);
-    pmm_deinit_region(cast(u64, mbi), 4096);
-    pmm_deinit_region(cast(u64, mbi.mmap_addr), cast(u64, mbi.mmap_length));
+    pmm.mark_range_used(0, 0x100000);
+    pmm.mark_range_used(0x100000, kernel_end - 0x100000);
+    pmm.mark_range_used(cast(u64, mbi), PMM_PAGE_SIZE);
+    pmm.mark_range_used(cast(u64, mbi.mmap_addr), cast(u64, mbi.mmap_length));
 
     return;
 }
 
-
 proc pmm_alloc_page() -> (PhysAddr, bool) {
-    g_pmm_lock.acquire_irq();
+    var guard = g_pmm.lock_irq();
+    defer guard.release_irq();
 
-    for (var w: u64 = 0; w < 16384; w += 1) {
-        if (g_pmm_bitmap[w] != 0xFFFFFFFFFFFFFFFF) {
-            for (var b: u64 = 0; b < 64; b += 1) {
+    var pmm: PmmState* = guard.get();
+
+    for (var w: u64 = 0; w < PMM_BITMAP_WORDS; w += 1) {
+        if (pmm.bitmap[w] != PMM_WORD_FULL) {
+            for (var b: u64 = 0; b < PMM_BITS_PER_WORD; b += 1) {
                 var mask: u64 = cast(u64, 1) << b;
 
-                if ((g_pmm_bitmap[w] & mask) == 0) {
-                    var frame_idx: u64 = w * 64 + b;
+                if ((pmm.bitmap[w] & mask) == 0) {
+                    var frame_idx: u64 = (w << PMM_WORD_SHIFT) + b;
 
-                    pmm_set_bit(frame_idx);
+                    pmm.set_frame(frame_idx);
 
-                    g_pmm_used_pages = g_pmm_used_pages + 1;
-                    g_pmm_free_pages = g_pmm_free_pages - 1;
+                    pmm.used_pages = pmm.used_pages + 1;
+                    pmm.free_pages = pmm.free_pages - 1;
 
-                    g_pmm_lock.release_irq();
-
-                    return (cast(PhysAddr, frame_idx * 4096), true);
+                    return (cast(PhysAddr, frame_idx << PMM_PAGE_SHIFT), true);
                 }
             }
         }
     }
 
-    g_pmm_lock.release_irq();
-
     return (cast(PhysAddr, 0), false);
 }
 
-
 proc pmm_free_page(phys_addr: PhysAddr) -> void {
-    var frame_idx: u64 = cast(u64, phys_addr) / 4096;
+    var frame_idx: u64 = cast(u64, phys_addr) >> PMM_PAGE_SHIFT;
 
-    g_pmm_lock.acquire_irq();
+    var guard = g_pmm.lock_irq();
+    defer guard.release_irq();
 
-    if (frame_idx < g_pmm_max_frames) {
-        if (pmm_test_bit(frame_idx) != 0) {
-            pmm_clear_bit(frame_idx);
+    var pmm: PmmState* = guard.get();
 
-            g_pmm_used_pages = g_pmm_used_pages - 1;
-            g_pmm_free_pages = g_pmm_free_pages + 1;
+    if (frame_idx < pmm.max_frames) {
+        if (pmm.test_frame(frame_idx)) {
+            pmm.clear_frame(frame_idx);
+
+            pmm.used_pages = pmm.used_pages - 1;
+            pmm.free_pages = pmm.free_pages + 1;
         }
     }
 
-    g_pmm_lock.release_irq();
-
     return;
+}
+
+proc pmm_get_total_pages() -> u64 {
+    var guard = g_pmm.lock_irq();
+    defer guard.release_irq();
+
+    return guard.get().total_pages;
+}
+
+proc pmm_get_used_pages() -> u64 {
+    var guard = g_pmm.lock_irq();
+    defer guard.release_irq();
+
+    return guard.get().used_pages;
+}
+
+proc pmm_get_free_pages() -> u64 {
+    var guard = g_pmm.lock_irq();
+    defer guard.release_irq();
+
+    return guard.get().free_pages;
 }
