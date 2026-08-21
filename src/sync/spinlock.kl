@@ -61,3 +61,75 @@ packed struct Spinlock {
         return;
     }
 }
+
+struct SpinlockGuard[T] {
+    lock: Spinlock*,
+    data: T*,
+
+    proc get(g: SpinlockGuard[T]*) -> T* {
+        return g.data;
+    }
+
+    proc release(g: SpinlockGuard[T]*) -> void {
+        g.lock.release();
+
+        return;
+    }
+
+    proc release_irq(g: SpinlockGuard[T]*) -> void {
+        g.lock.release_irq();
+
+        return;
+    }
+}
+
+struct Spinlocked[T] {
+    lock: Spinlock,
+    data: T,
+
+    proc init(s: Spinlocked[T]*) -> void {
+        s.lock.init();
+
+        return;
+    }
+
+    proc is_locked(s: Spinlocked[T]*) -> bool {
+        return s.lock.is_locked();
+    }
+
+    proc lock(s: Spinlocked[T]*) -> SpinlockGuard[T] {
+        s.lock.acquire();
+
+        return SpinlockGuard[T] {
+            lock: &s.lock,
+            data: &s.data
+        };
+    }
+
+    proc lock_irq(s: Spinlocked[T]*) -> SpinlockGuard[T] {
+        s.lock.acquire_irq();
+
+        return SpinlockGuard[T] {
+            lock: &s.lock,
+            data: &s.data
+        };
+    }
+
+    proc try_lock(s: Spinlocked[T]*) -> (SpinlockGuard[T], bool) {
+        if (s.lock.try_acquire()) {
+            var guard: SpinlockGuard[T] = SpinlockGuard[T] {
+                lock: &s.lock,
+                data: &s.data
+            };
+
+            return (guard, true);
+        }
+
+        var empty_guard: SpinlockGuard[T] = SpinlockGuard[T] {
+            lock: cast(Spinlock*, 0),
+            data: cast(T*, 0)
+        };
+
+        return (empty_guard, false);
+    }
+}
