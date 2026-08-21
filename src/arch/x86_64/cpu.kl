@@ -48,3 +48,13 @@ proc cpu_rdtsc() -> u64 {
 
     return;
 }
+
+@inline proc cpu_set_cr8(val: u64) -> void {
+    asm ("mov cr8, rax" : in(val) "rax");
+
+    return;
+}
+
+@inline proc cpu_get_cr8() -> u64 {
+    return asm ("mov rax, cr8" : out "rax") -> u64;
+}
