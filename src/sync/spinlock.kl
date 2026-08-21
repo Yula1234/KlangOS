@@ -6,18 +6,18 @@ packed struct Spinlock {
     locked: Atomic,
     rflags: u64,
 
-    proc init(s: Spinlock*) -> void {
+    @inline proc init(s: Spinlock*) -> void {
         s.locked.init(0);
         s.rflags = 0;
 
         return;
     }
 
-    proc is_locked(s: Spinlock*) -> bool {
+    @inline proc is_locked(s: Spinlock*) -> bool {
         return s.locked.get() != 0;
     }
 
-    proc try_acquire(s: Spinlock*) -> bool {
+    @inline proc try_acquire(s: Spinlock*) -> bool {
         return s.locked.xchg(1) == 0;
     }
 
@@ -31,7 +31,7 @@ packed struct Spinlock {
         return;
     }
 
-    proc release(s: Spinlock*) -> void {
+    @inline proc release(s: Spinlock*) -> void {
         s.locked.set(0);
 
         return;
@@ -51,7 +51,7 @@ packed struct Spinlock {
         return;
     }
 
-    proc release_irq(s: Spinlock*) -> void {
+    @inline proc release_irq(s: Spinlock*) -> void {
         var saved_flags: u64 = s.rflags;
 
         s.locked.set(0);
@@ -66,17 +66,17 @@ struct SpinlockGuard[T] {
     lock: Spinlock*,
     data: T*,
 
-    proc get(g: SpinlockGuard[T]*) -> T* {
+    @inline proc get(g: SpinlockGuard[T]*) -> T* {
         return g.data;
     }
 
-    proc release(g: SpinlockGuard[T]*) -> void {
+    @inline proc release(g: SpinlockGuard[T]*) -> void {
         g.lock.release();
 
         return;
     }
 
-    proc release_irq(g: SpinlockGuard[T]*) -> void {
+    @inline proc release_irq(g: SpinlockGuard[T]*) -> void {
         g.lock.release_irq();
 
         return;
@@ -87,17 +87,17 @@ struct Spinlocked[T] {
     lock: Spinlock,
     data: T,
 
-    proc init(s: Spinlocked[T]*) -> void {
+    @inline proc init(s: Spinlocked[T]*) -> void {
         s.lock.init();
 
         return;
     }
 
-    proc is_locked(s: Spinlocked[T]*) -> bool {
+    @inline proc is_locked(s: Spinlocked[T]*) -> bool {
         return s.lock.is_locked();
     }
 
-    proc lock(s: Spinlocked[T]*) -> SpinlockGuard[T] {
+    @inline proc lock(s: Spinlocked[T]*) -> SpinlockGuard[T] {
         s.lock.acquire();
 
         return SpinlockGuard[T] {
@@ -106,7 +106,7 @@ struct Spinlocked[T] {
         };
     }
 
-    proc lock_irq(s: Spinlocked[T]*) -> SpinlockGuard[T] {
+    @inline proc lock_irq(s: Spinlocked[T]*) -> SpinlockGuard[T] {
         s.lock.acquire_irq();
 
         return SpinlockGuard[T] {
