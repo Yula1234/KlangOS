@@ -1,3 +1,14 @@
+const IDT_ENTRIES_COUNT:       u64 = 256;
+
+const IDT_KERNEL_CS_SEL:       u16 = 0x0008;
+
+const IDT_GATE_INTERRUPT:      u8  = 0x8E;
+const IDT_GATE_TRAP:           u8  = 0x8F;
+const IDT_GATE_USER_INTERRUPT: u8  = 0xEE;
+
+const IDT_IST_DOUBLE_FAULT:    u8  = 1;
+const EXCEPTION_DOUBLE_FAULT:  u64 = 8;
+
 packed struct IdtEntry {
     offset_low:  u16,
     selector:    u16,
@@ -5,7 +16,19 @@ packed struct IdtEntry {
     type_attr:   u8,
     offset_mid:  u16,
     offset_high: u32,
-    zero:        u32
+    reserved:    u32,
+
+    @inline proc set(e: IdtEntry*, handler: u64, selector: u16, type_attr: u8, ist: u8) -> void {
+        e.offset_low  = cast(u16, handler & 0xFFFF);
+        e.selector    = selector;
+        e.ist         = ist & 0x07;
+        e.type_attr   = type_attr;
+        e.offset_mid  = cast(u16, (handler >> 16) & 0xFFFF);
+        e.offset_high = cast(u32, (handler >> 32) & 0xFFFFFFFF);
+        e.reserved    = 0;
+
+        return;
+    }
 }
 
 packed struct IdtPointer {
@@ -13,39 +36,39 @@ packed struct IdtPointer {
     base:  u64
 }
 
-var g_idt: [256]IdtEntry;
+@align(4096)
+var g_idt:     [256]IdtEntry;
 var g_idt_ptr: IdtPointer;
 
-proc idt_set_gate(num: u8, handler: u64, selector: u16, flags: u8, ist: u8) -> void {
-    var entry: IdtEntry* = &g_idt[num];
+@inline proc idt_load(ptr: IdtPointer*) -> void {
+    asm ("lidt [rdi]" : in(ptr) "rdi" : clobber "memory");
 
-    entry.offset_low  = cast(u16, handler & 0xFFFF);
-    entry.selector    = selector;
-    entry.ist         = ist;
-    entry.type_attr   = flags;
-    entry.offset_mid  = cast(u16, (handler >> 16) & 0xFFFF);
-    entry.offset_high = cast(u32, (handler >> 32) & 0xFFFFFFFF);
-    entry.zero        = 0;
+    return;
+}
+
+@inline proc idt_set_gate(vector: u8, handler: u64, selector: u16, type_attr: u8, ist: u8) -> void {
+    g_idt[vector].set(handler, selector, type_attr, ist);
 
     return;
 }
 
 proc idt_init(stub_table: u64*) -> void {
-    for (var i: u64 = 0; i < 256; i += 1) {
+    for (var i: u64 = 0; i < IDT_ENTRIES_COUNT; i += 1) {
         var ist_idx: u8 = 0;
 
-        if (i == 8) {
-            ist_idx = 1;
+        if (i == EXCEPTION_DOUBLE_FAULT) {
+            ist_idx = IDT_IST_DOUBLE_FAULT;
         }
 
-        idt_set_gate(cast(u8, i), stub_table[i], 0x08, 0x8E, ist_idx);
+        idt_set_gate(cast(u8, i), stub_table[i], IDT_KERNEL_CS_SEL, IDT_GATE_INTERRUPT, ist_idx);
     }
 
-    g_idt_ptr.limit = cast(u16, (256 * sizeof(IdtEntry)) - 1);
-    g_idt_ptr.base  = cast(u64, &g_idt[0]);
+    g_idt_ptr = IdtPointer {
+        limit: cast(u16, (IDT_ENTRIES_COUNT * sizeof(IdtEntry)) - 1),
+        base:  cast(u64, &g_idt[0])
+    };
 
-    asm "lea rax, [rel g_idt_ptr]";
-    asm "lidt [rax]";
+    idt_load(&g_idt_ptr);
 
     return;
 }
