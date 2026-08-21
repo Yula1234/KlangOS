@@ -1,24 +1,24 @@
-const PORT_PIC1_CMD:    u16 = 0x0020;
-const PORT_PIC1_DATA:   u16 = 0x0021;
-const PORT_PIC2_CMD:    u16 = 0x00A0;
-const PORT_PIC2_DATA:   u16 = 0x00A1;
+const PORT_PIC1_CMD:   u16 = 0x0020;
+const PORT_PIC1_DATA:  u16 = 0x0021;
+const PORT_PIC2_CMD:   u16 = 0x00A0;
+const PORT_PIC2_DATA:  u16 = 0x00A1;
 
-const PORT_PIT_CH0:     u16 = 0x0040;
-const PORT_PIT_CH1:     u16 = 0x0041;
-const PORT_PIT_CH2:     u16 = 0x0042;
-const PORT_PIT_CMD:     u16 = 0x0043;
+const PORT_PIT_CH0:    u16 = 0x0040;
+const PORT_PIT_CH1:    u16 = 0x0041;
+const PORT_PIT_CH2:    u16 = 0x0042;
+const PORT_PIT_CMD:    u16 = 0x0043;
 
-const PORT_PS2_DATA:    u16 = 0x0060;
-const PORT_PS2_STATUS:  u16 = 0x0064;
-const PORT_PS2_CMD:     u16 = 0x0064;
+const PORT_PS2_DATA:   u16 = 0x0060;
+const PORT_PS2_STATUS: u16 = 0x0064;
+const PORT_PS2_CMD:    u16 = 0x0064;
 
-const PORT_RTC_INDEX:   u16 = 0x0070;
-const PORT_RTC_DATA:    u16 = 0x0071;
+const PORT_RTC_INDEX:  u16 = 0x0070;
+const PORT_RTC_DATA:   u16 = 0x0071;
 
-const PORT_POST_CHECK:  u16 = 0x0080;
+const PORT_POST_CHECK: u16 = 0x0080;
 
-const PORT_COM1:        u16 = 0x03F8;
-const PORT_COM2:        u16 = 0x02F8;
+const PORT_COM1:       u16 = 0x03F8;
+const PORT_COM2:       u16 = 0x02F8;
 
 @inline proc io_outb(port: u16, val: u8) -> void {
     asm ("out dx, al" : in(port) "dx", in(val) "al");
@@ -51,78 +51,65 @@ const PORT_COM2:        u16 = 0x02F8;
 }
 
 @inline proc io_wait() -> void {
-    asm "out 0x80, al";
+    var zero: u8 = 0;
+    asm ("out dx, al" : in(PORT_POST_CHECK) "dx", in(zero) "al");
 
     return;
 }
 
-proc io_insb(port: u16, buffer: u8*, count: u64) -> void {
+@inline proc io_insb(port: u16, buffer: u8*, count: u64) -> void {
     asm ("cld\n    rep insb" : in(port) "dx", in(buffer) "rdi", in(count) "rcx" : clobber "memory");
 
     return;
 }
 
-proc io_outsb(port: u16, buffer: u8*, count: u64) -> void {
+@inline proc io_outsb(port: u16, buffer: u8*, count: u64) -> void {
     asm ("cld\n    rep outsb" : in(port) "dx", in(buffer) "rsi", in(count) "rcx" : clobber "memory");
 
     return;
 }
 
-proc io_insw(port: u16, buffer: u16*, count: u64) -> void {
-    asm "mov rcx, rdx";
-    asm "mov dx, di";
-    asm "mov rdi, rsi";
-    asm "cld";
-    asm "rep insw";
+@inline proc io_insw(port: u16, buffer: u16*, count: u64) -> void {
+    asm ("cld\n    rep insw" : in(port) "dx", in(buffer) "rdi", in(count) "rcx" : clobber "memory");
 
     return;
 }
 
-proc io_outsw(port: u16, buffer: u16*, count: u64) -> void {
-    asm "mov rcx, rdx";
-    asm "mov dx, di";
-    asm "cld";
-    asm "rep outsw";
+@inline proc io_outsw(port: u16, buffer: u16*, count: u64) -> void {
+    asm ("cld\n    rep outsw" : in(port) "dx", in(buffer) "rsi", in(count) "rcx" : clobber "memory");
 
     return;
 }
 
-proc io_insd(port: u16, buffer: u32*, count: u64) -> void {
-    asm "mov rcx, rdx";
-    asm "mov dx, di";
-    asm "mov rdi, rsi";
-    asm "cld";
-    asm "rep insd";
+@inline proc io_insd(port: u16, buffer: u32*, count: u64) -> void {
+    asm ("cld\n    rep insd" : in(port) "dx", in(buffer) "rdi", in(count) "rcx" : clobber "memory");
 
     return;
 }
 
-proc io_outsd(port: u16, buffer: u32*, count: u64) -> void {
-    asm "mov rcx, rdx";
-    asm "mov dx, di";
-    asm "cld";
-    asm "rep outsd";
+@inline proc io_outsd(port: u16, buffer: u32*, count: u64) -> void {
+    asm ("cld\n    rep outsd" : in(port) "dx", in(buffer) "rsi", in(count) "rcx" : clobber "memory");
 
     return;
 }
 
-proc io_set_mask_8(port: u16, mask: u8) -> void {
+@inline proc io_set_mask_8(port: u16, mask: u8) -> void {
     var current: u8 = io_inb(port);
     io_outb(port, current | mask);
 
     return;
 }
 
-proc io_clear_mask_8(port: u16, mask: u8) -> void {
+@inline proc io_clear_mask_8(port: u16, mask: u8) -> void {
     var current: u8 = io_inb(port);
     io_outb(port, current & ~mask);
 
     return;
 }
 
-proc io_test_bit_8(port: u16, bit: u8) -> bool {
+@inline proc io_test_bit_8(port: u16, bit: u8) -> bool {
     var current: u8 = io_inb(port);
-    var mask: u8 = cast(u8, 1) << bit;
+    var mask:    u8 = cast(u8, 1) << bit;
 
     return (current & mask) != 0;
 }
