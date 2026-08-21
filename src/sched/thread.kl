@@ -21,35 +21,35 @@ packed struct Thread {
     stack_size:  u64 = THREAD_STACK_SIZE,
     sleep_ticks: u64 = 0,
 
-    proc is_ready(t: Thread*) -> bool {
+    @inline proc is_ready(t: Thread*) -> bool {
         return t.state == ThreadState.READY;
     }
 
-    proc is_running(t: Thread*) -> bool {
+    @inline proc is_running(t: Thread*) -> bool {
         return t.state == ThreadState.RUNNING;
     }
 
-    proc is_sleeping(t: Thread*) -> bool {
+    @inline proc is_sleeping(t: Thread*) -> bool {
         return t.state == ThreadState.SLEEPING;
     }
 
-    proc is_dead(t: Thread*) -> bool {
+    @inline proc is_dead(t: Thread*) -> bool {
         return t.state == ThreadState.DEAD;
     }
 
-    proc block(t: Thread*) -> void {
+    @inline proc block(t: Thread*) -> void {
         t.state = ThreadState.BLOCKED;
 
         return;
     }
 
-    proc unblock(t: Thread*) -> void {
+    @inline proc unblock(t: Thread*) -> void {
         t.state = ThreadState.READY;
 
         return;
     }
 
-    proc terminate(t: Thread*) -> void {
+    @inline proc terminate(t: Thread*) -> void {
         t.state = ThreadState.DEAD;
 
         return;
@@ -57,11 +57,11 @@ packed struct Thread {
 }
 
 
-proc thread_from_sched_node(node: ListNode*) -> Thread* {
+@inline proc thread_from_sched_node(node: ListNode*) -> Thread* {
     return cast(Thread*, cast(u64, node) - offsetof(Thread, sched_node));
 }
 
 
-proc thread_from_wait_node(node: ListNode*) -> Thread* {
+@inline proc thread_from_wait_node(node: ListNode*) -> Thread* {
     return cast(Thread*, cast(u64, node) - offsetof(Thread, wait_node));
 }
