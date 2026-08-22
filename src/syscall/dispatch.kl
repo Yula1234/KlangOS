@@ -1,0 +1,134 @@
+import "arch/x86_64/syscall.kl";
+
+import "drivers/vga.kl";
+import "drivers/keyboard.kl";
+
+import "sched/sched.kl";
+import "sched/thread.kl";
+import "sched/process.kl";
+
+import "mm/vmm.kl";
+
+enum Syscall: u64 {
+    EXIT = 1,
+    WRITE,
+    READ,
+    YIELD,
+    SLEEP,
+    GETPID
+}
+
+const ERR_EPERM:  i64 = -1;
+const ERR_ENOENT: i64 = -2;
+const ERR_EBADF:  i64 = -9;
+const ERR_EFAULT: i64 = -14;
+const ERR_EINVAL: i64 = -22;
+const ERR_ENOSYS: i64 = -38;
+
+proc sys_write(fd: u64, buf: u8*, count: u64) -> i64 {
+    if (count == 0) {
+        return 0;
+    }
+
+    if (!uptr_validate_ptr(buf, count)) {
+        return ERR_EFAULT;
+    }
+
+    if (fd != 1 && fd != 2) {
+        return ERR_EBADF;
+    }
+
+    vga_print("User Task (Syscall): ", 0x1F, 23, 4);
+
+    for (var i: u64 = 0; i < count; i += 1) {
+        var c: char = cast(char, buf[i]);
+
+        vga_print_char(c, 0x1A, 23, 25 + (i % 50));
+    }
+
+    return cast(i64, count);
+}
+
+proc sys_read(fd: u64, buf: u8*, count: u64) -> i64 {
+    if (count == 0) {
+        return 0;
+    }
+
+    if (!uptr_validate_ptr(buf, count)) {
+        return ERR_EFAULT;
+    }
+
+    if (fd != 0) {
+        return ERR_EBADF;
+    }
+
+    var read_count: u64 = 0;
+
+    while (read_count < count) {
+        var c: char = keyboard_getchar();
+
+        buf[read_count] = cast(u8, c);
+        read_count      = read_count + 1;
+
+        if (cast(u8, c) == 10 || cast(u8, c) == 13) {
+            break;
+        }
+    }
+
+    return cast(i64, read_count);
+}
+
+proc sys_getpid() -> i64 {
+    if (cast(u64, g_current_thread) == 0) {
+        return 0;
+    }
+
+    if (cast(u64, g_current_thread.process) == 0) {
+        return 0;
+    }
+
+    return cast(i64, g_current_thread.process.pid);
+}
+
+@export proc syscall_dispatch(frame: SyscallFrame*) -> i64 {
+    var sys_no: u64 = frame.rax;
+    var a1:     u64 = frame.rdi;
+    var a2:     u64 = frame.rsi;
+    var a3:     u64 = frame.rdx;
+
+    switch (sys_no) {
+        case Syscall.EXIT: {
+            thread_exit();
+
+            return 0;
+        }
+
+        case Syscall.WRITE: {
+            return sys_write(a1, cast(u8*, a2), a3);
+        }
+
+        case Syscall.READ: {
+            return sys_read(a1, cast(u8*, a2), a3);
+        }
+
+        case Syscall.YIELD: {
+            thread_yield();
+
+            return 0;
+        }
+
+        case Syscall.SLEEP: {
+            thread_sleep(a1);
+
+            return 0;
+        }
+
+        case Syscall.GETPID: {
+            return sys_getpid();
+        }
+
+        default: {
+            return ERR_ENOSYS;
+        }
+    }
+}

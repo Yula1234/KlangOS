@@ -1,0 +1,48 @@
+import "cpu.kl";
+
+const MSR_EFER:       u32 = 0xC0000080;
+const MSR_STAR:       u32 = 0xC0000081;
+const MSR_LSTAR:      u32 = 0xC0000082;
+const MSR_SFMASK:     u32 = 0xC0000084;
+
+const EFER_SCE:       u64 = 0x00000001;
+const SFMASK_IF:      u64 = 0x00000200;
+
+const STAR_KERNEL_CS: u64 = 0x0008;
+const STAR_USER_CS:   u64 = 0x0010;
+const STAR_VALUE:     u64 = 0x0010000800000000;
+
+packed struct SyscallFrame {
+    r9:     u64 = 0,
+    r8:     u64 = 0,
+    r10:    u64 = 0,
+    rdx:    u64 = 0,
+    rsi:    u64 = 0,
+    rdi:    u64 = 0,
+    rax:    u64 = 0,
+    r15:    u64 = 0,
+    r14:    u64 = 0,
+    r13:    u64 = 0,
+    r12:    u64 = 0,
+    rbx:    u64 = 0,
+    rbp:    u64 = 0,
+    rflags: u64 = 0,
+    rip:    u64 = 0,
+    rsp:    u64 = 0
+}
+
+var g_syscall_kernel_rsp: u64;
+var g_syscall_user_rsp:   u64;
+
+@extern proc syscall_entry() -> void;
+
+proc syscall_init() -> void {
+    var efer: u64 = msr_read(MSR_EFER);
+
+    msr_write(MSR_EFER, efer | EFER_SCE);
+    msr_write(MSR_STAR, STAR_VALUE);
+    msr_write(MSR_LSTAR, cast(u64, syscall_entry));
+    msr_write(MSR_SFMASK, SFMASK_IF);
+
+    return;
+}

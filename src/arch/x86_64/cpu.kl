@@ -58,3 +58,21 @@ proc cpu_rdtsc() -> u64 {
 @inline proc cpu_get_cr8() -> u64 {
     return asm ("mov rax, cr8" : out "rax") -> u64;
 }
+
+@inline proc msr_read(msr: u32) -> u64 {
+    var low:  u32;
+    var high: u32;
+
+    asm ("rdmsr" : in(msr) "ecx" : out(low) "eax", out(high) "edx");
+
+    return (cast(u64, high) << 32) | cast(u64, low);
+}
+
+@inline proc msr_write(msr: u32, val: u64) -> void {
+    var low:  u32 = cast(u32, val & 0xFFFFFFFF);
+    var high: u32 = cast(u32, (val >> 32) & 0xFFFFFFFF);
+
+    asm ("wrmsr" : in(msr) "ecx", in(low) "eax", in(high) "edx");
+
+    return;
+}

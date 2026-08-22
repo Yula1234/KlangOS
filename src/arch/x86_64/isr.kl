@@ -95,6 +95,14 @@ proc get_exception_name(int_no: u64) -> []char {
     }
 }
 
+proc isr_user_fault_handler(frame: InterruptFrame*) -> u64 {
+    vga_print("[USER FAULT] Thread terminated Exception at RIP: ", 0x4E, 23, 4);
+    vga_print_hex(frame.rip, 0x4E, 23, 50);
+
+    thread_exit();
+
+    return sched_schedule(cast(u64, frame));
+}
 
 proc isr_panic(frame: InterruptFrame*) -> void {
     vga_clear(0x4F);
@@ -152,7 +160,12 @@ proc isr_handler(frame: InterruptFrame*) -> u64 {
     var raw_frame_rsp: u64 = cast(u64, frame);
 
     if (frame.int_no < 32 && frame.int_no != 2) {
+        if ((frame.cs & 3) == 3) {
+            return isr_user_fault_handler(frame);
+        }
+
         isr_panic(frame);
+
         return raw_frame_rsp;
     }
 

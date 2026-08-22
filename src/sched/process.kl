@@ -1,0 +1,149 @@
+import "sync/spinlock.kl";
+
+import "lib/list.kl";
+
+import "mm/heap.kl";
+import "mm/vmm.kl";
+import "mm/pmm.kl";
+
+const USER_DEFAULT_ENTRY: u64 = 0x0000000000400000;
+const USER_DEFAULT_STACK: u64 = 0x00007FFFFFFFF000;
+
+struct Process {
+    list_node:    ListNode,
+    pid:          u64,
+    pml4:         PageTable,
+    cr3:          PhysAddr,
+    user_entry:   u64,
+    user_stack:   u64,
+    thread_count: u64,
+    is_alive:     bool,
+
+    proc init(p: Process*, pid: u64, pml4: PageTable, cr3: PhysAddr, entry: u64, stack: u64) -> void {
+        p.list_node.init();
+        p.pid          = pid;
+        p.pml4         = pml4;
+        p.cr3          = cr3;
+        p.user_entry   = entry;
+        p.user_stack   = stack;
+        p.thread_count = 0;
+        p.is_alive     = true;
+
+        return;
+    }
+
+    @inline proc terminate(p: Process*) -> void {
+        p.is_alive = false;
+
+        return;
+    }
+}
+
+@inline proc process_from_list_node(node: ListNode*) -> Process* {
+    return cast(Process*, cast(u64, node) - offsetof(Process, list_node));
+}
+
+struct ProcessTableState {
+    head:          ListNode,
+    process_count: u64,
+    next_pid:      u64,
+
+    proc init(s: ProcessTableState*) -> void {
+        s.head.init();
+        s.process_count = 0;
+        s.next_pid      = 1;
+
+        return;
+    }
+
+    proc allocate_process(s: ProcessTableState*, entry: u64, stack: u64) -> (Process*, bool) {
+        var (pml4, cr3, ok) = vmm_create_user_space();
+
+        if (!ok) {
+            return (cast(Process*, 0), false);
+        }
+
+        var proc_mem: Process* = cast(Process*, kalloc(sizeof(Process)));
+
+        if (cast(u64, proc_mem) == 0) {
+            vmm_destroy_user_space(pml4, cr3);
+
+            return (cast(Process*, 0), false);
+        }
+
+        proc_mem.init(s.next_pid, pml4, cr3, entry, stack);
+
+        s.next_pid      = s.next_pid + 1;
+        s.process_count = s.process_count + 1;
+
+        s.head.add_tail(&proc_mem.list_node);
+
+        return (proc_mem, true);
+    }
+
+    proc remove_process(s: ProcessTableState*, proc_ptr: Process*) -> void {
+        if (cast(u64, proc_ptr) == 0) {
+            return;
+        }
+
+        proc_ptr.list_node.remove();
+        s.process_count = s.process_count - 1;
+
+        vmm_destroy_user_space(proc_ptr.pml4, proc_ptr.cr3);
+        kfree(cast(u8*, proc_ptr));
+
+        return;
+    }
+
+    proc find_by_pid(s: ProcessTableState*, pid: u64) -> Process* {
+        var curr_node: ListNode* = s.head.next;
+
+        while (curr_node != &s.head) {
+            var p: Process* = process_from_list_node(curr_node);
+
+            if (p.pid == pid) {
+                return p;
+            }
+
+            curr_node = curr_node.next;
+        }
+
+        return cast(Process*, 0);
+    }
+}
+
+var g_process_table: Spinlocked[ProcessTableState];
+
+proc process_mgr_init() -> void {
+    g_process_table.init();
+
+    var guard = g_process_table.lock_irq();
+    defer guard.release_irq();
+
+    guard.get().init();
+
+    return;
+}
+
+proc process_create(entry: u64, stack: u64) -> (Process*, bool) {
+    var guard = g_process_table.lock_irq();
+    defer guard.release_irq();
+
+    return guard.get().allocate_process(entry, stack);
+}
+
+proc process_destroy(proc_ptr: Process*) -> void {
+    var guard = g_process_table.lock_irq();
+    defer guard.release_irq();
+
+    guard.get().remove_process(proc_ptr);
+
+    return;
+}
+
+proc process_get_by_pid(pid: u64) -> Process* {
+    var guard = g_process_table.lock_irq();
+    defer guard.release_irq();
+
+    return guard.get().find_by_pid(pid);
+}

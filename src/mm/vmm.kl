@@ -6,24 +6,29 @@ import "lib/mem.kl";
 
 import "pmm.kl";
 
-const HHDM_OFFSET:          u64 = 0xFFFF800000000000;
-const HHDM_SIZE:            u64 = 0x0000000100000000;
+const HHDM_OFFSET:             u64 = 0xFFFF800000000000;
+const HHDM_SIZE:               u64 = 0x0000000100000000;
 
-const VMM_PAGE_SIZE:        u64 = 4096;
-const VMM_PAGE_MASK:        u64 = 4095;
-const VMM_PAGE_ALIGN_MASK:  u64 = 0xFFFFFFFFFFFFF000;
-const VMM_PHYS_ADDR_MASK:   u64 = 0x000FFFFFFFFFF000;
+const USER_SPACE_MIN_ADDR:     u64 = 0x0000000000010000;
+const USER_SPACE_MAX_ADDR:     u64 = 0x00007FFFFFFFFFFF;
 
-const VMM_ENTRY_MASK:       u64 = 511;
+const VMM_PAGE_SIZE:           u64 = 4096;
+const VMM_PAGE_MASK:           u64 = 4095;
+const VMM_PAGE_ALIGN_MASK:     u64 = 0xFFFFFFFFFFFFF000;
+const VMM_PHYS_ADDR_MASK:      u64 = 0x000FFFFFFFFFF000;
 
-const VMM_PML4_SHIFT:       u64 = 39;
-const VMM_PDPT_SHIFT:       u64 = 30;
-const VMM_PD_SHIFT:         u64 = 21;
-const VMM_PT_SHIFT:         u64 = 12;
+const VMM_ENTRY_MASK:          u64 = 511;
+const VMM_ENTRIES_PER_TABLE:   u64 = 512;
+const VMM_USER_PML4_ENTRIES:   u64 = 256;
 
-const PTE_PRESENT:          u64 = 1;
-const PTE_WRITABLE:         u64 = 2;
-const PTE_USER:             u64 = 4;
+const VMM_PML4_SHIFT:          u64 = 39;
+const VMM_PDPT_SHIFT:          u64 = 30;
+const VMM_PD_SHIFT:            u64 = 21;
+const VMM_PT_SHIFT:            u64 = 12;
+
+const PTE_PRESENT:             u64 = 1;
+const PTE_WRITABLE:            u64 = 2;
+const PTE_USER:                u64 = 4;
 
 type VirtAddr  = u64;
 type PageTable = u64*;
@@ -213,13 +218,133 @@ var g_kernel_pml4: PageTable;
 }
 
 @inline proc vmm_set_cr3(pml4_phys: PhysAddr) -> void {
-    asm ("mov cr3, rax" : in(pml4_phys) "rax");
+    asm ("mov cr3, rax" : in(pml4_phys) "rax" : clobber "memory");
 
     return;
 }
 
 @inline proc vmm_get_cr3() -> PhysAddr {
     return asm ("mov rax, cr3" : out "rax") -> PhysAddr;
+}
+
+@inline proc uptr_validate(ptr: u64, size: u64) -> bool {
+    if (ptr < USER_SPACE_MIN_ADDR) {
+        return false;
+    }
+
+    if (size == 0) {
+        return ptr <= USER_SPACE_MAX_ADDR;
+    }
+
+    var end_addr: u64 = ptr + size;
+
+    if (end_addr < ptr) {
+        return false;
+    }
+
+    if ((end_addr - 1) > USER_SPACE_MAX_ADDR) {
+        return false;
+    }
+
+    return true;
+}
+
+@inline proc uptr_validate_ptr(ptr: u8*, size: u64) -> bool {
+    return uptr_validate(cast(u64, ptr), size);
+}
+
+@inline proc uptr_is_aligned(ptr: u64, align: u64) -> bool {
+    var mask: u64 = align - 1;
+
+    return (ptr & mask) == 0;
+}
+
+proc uptr_strnlen(str: char*, max_len: u64) -> (u64, bool) {
+    var raw_ptr: u64 = cast(u64, str);
+
+    if (!uptr_validate(raw_ptr, 1)) {
+        return (0, false);
+    }
+
+    var len: u64 = 0;
+
+    while (len < max_len) {
+        var cur_addr: u64 = raw_ptr + len;
+
+        if (cur_addr > USER_SPACE_MAX_ADDR) {
+            return (0, false);
+        }
+
+        if (str[len] == cast(char, 0)) {
+            return (len, true);
+        }
+
+        len += 1;
+    }
+
+    return (len, true);
+}
+
+proc vmm_create_user_space() -> (PageTable, PhysAddr, bool) {
+    var (pml4_phys, ok) = pmm_alloc_page();
+
+    if (!ok) {
+        return (cast(PageTable, 0), cast(PhysAddr, 0), false);
+    }
+
+    var pml4_ptr: PageTable = cast(PageTable, phys_to_virt(pml4_phys));
+
+    memzero_page(pml4_ptr);
+
+    pml4_ptr[0] = g_kernel_pml4[0];
+
+    for (var i: u64 = VMM_USER_PML4_ENTRIES; i < VMM_ENTRIES_PER_TABLE; i += 1) {
+        pml4_ptr[i] = g_kernel_pml4[i];
+    }
+
+    return (pml4_ptr, pml4_phys, true);
+}
+
+proc vmm_destroy_user_space(pml4: PageTable, pml4_phys: PhysAddr) -> void {
+    if (cast(u64, pml4) == 0) {
+        return;
+    }
+
+    for (var i: u64 = 1; i < VMM_USER_PML4_ENTRIES; i += 1) {
+        var pml4_entry: u64 = pml4[i];
+
+        if ((pml4_entry & PTE_PRESENT) != 0) {
+            var pdpt_phys: PhysAddr  = cast(PhysAddr, pml4_entry & VMM_PHYS_ADDR_MASK);
+            var pdpt:      PageTable = cast(PageTable, phys_to_virt(pdpt_phys));
+
+            for (var j: u64 = 0; j < VMM_ENTRIES_PER_TABLE; j += 1) {
+                var pdpt_entry: u64 = pdpt[j];
+
+                if ((pdpt_entry & PTE_PRESENT) != 0) {
+                    var pd_phys: PhysAddr  = cast(PhysAddr, pdpt_entry & VMM_PHYS_ADDR_MASK);
+                    var pd:      PageTable = cast(PageTable, phys_to_virt(pd_phys));
+
+                    for (var k: u64 = 0; k < VMM_ENTRIES_PER_TABLE; k += 1) {
+                        var pd_entry: u64 = pd[k];
+
+                        if ((pd_entry & PTE_PRESENT) != 0) {
+                            var pt_phys: PhysAddr = cast(PhysAddr, pd_entry & VMM_PHYS_ADDR_MASK);
+
+                            pmm_free_page(pt_phys);
+                        }
+                    }
+
+                    pmm_free_page(pd_phys);
+                }
+            }
+
+            pmm_free_page(pdpt_phys);
+        }
+    }
+
+    pmm_free_page(pml4_phys);
+
+    return;
 }
 
 proc vmm_map_page(pml4: PageTable, virt_addr: VirtAddr, phys_addr: PhysAddr, flags: u64) -> u64 {

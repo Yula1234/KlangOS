@@ -1,5 +1,7 @@
 import "lib/list.kl";
 
+import "process.kl";
+
 enum ThreadState: u8 {
     READY = 1,
     RUNNING,
@@ -10,16 +12,19 @@ enum ThreadState: u8 {
 
 const THREAD_STACK_SIZE: u64 = 16384;
 
-
 packed struct Thread {
-    sched_node:  ListNode,
-    wait_node:   ListNode,
-    id:          u64 = 0,
-    rsp:         u64 = 0,
-    state:       ThreadState = ThreadState.READY,
-    stack_base:  u64 = 0,
-    stack_size:  u64 = THREAD_STACK_SIZE,
-    sleep_ticks: u64 = 0,
+    sched_node:       ListNode,
+    wait_node:        ListNode,
+    process:          Process*,
+    id:               u64 = 0,
+    rsp:              u64 = 0,
+    kernel_stack_top: u64 = 0,
+    user_stack_top:   u64 = 0,
+    stack_base:       u64 = 0,
+    stack_size:       u64 = THREAD_STACK_SIZE,
+    sleep_ticks:      u64 = 0,
+    state:            ThreadState = ThreadState.READY,
+    is_user:          bool = false,
 
     @inline proc is_ready(t: Thread*) -> bool {
         return t.state == ThreadState.READY;
@@ -56,11 +61,9 @@ packed struct Thread {
     }
 }
 
-
 @inline proc thread_from_sched_node(node: ListNode*) -> Thread* {
     return cast(Thread*, cast(u64, node) - offsetof(Thread, sched_node));
 }
-
 
 @inline proc thread_from_wait_node(node: ListNode*) -> Thread* {
     return cast(Thread*, cast(u64, node) - offsetof(Thread, wait_node));

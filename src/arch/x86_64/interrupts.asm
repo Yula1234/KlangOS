@@ -59,6 +59,57 @@ ISR_NOERR 31
 %assign i i+1
 %endrep
 
+extern syscall_dispatch
+extern g_syscall_kernel_rsp
+extern g_syscall_user_rsp
+
+global syscall_entry
+
+syscall_entry:
+    mov [rel g_syscall_user_rsp], rsp
+    mov rsp, [rel g_syscall_kernel_rsp]
+
+    push qword [rel g_syscall_user_rsp]
+    push rcx
+    push r11
+    push rbp
+    push rbx
+    push r12
+    push r13
+    push r14
+    push r15
+    push rax
+    push rdi
+    push rsi
+    push rdx
+    push r10
+    push r8
+    push r9
+
+    mov rdi, rsp
+    cld
+    call syscall_dispatch
+    mov [rsp + 48], rax
+
+    pop r9
+    pop r8
+    pop r10
+    pop rdx
+    pop rsi
+    pop rdi
+    pop rax
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    pop rbx
+    pop rbp
+    pop r11
+    pop rcx
+    pop rsp
+
+    o64 sysret
+
 isr_common_stub:
     push rax
     push rbx

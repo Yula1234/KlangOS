@@ -1,17 +1,23 @@
 import "arch/x86_64/isr.kl";
-import "arch/x86_64/cpu.kl";
+import "arch/x86_64/gdt.kl";
+import "arch/x86_64/syscall.kl";
 
 import "sync/spinlock.kl";
 
 import "lib/list.kl";
 
 import "mm/heap.kl";
+import "mm/vmm.kl";
+import "mm/pmm.kl";
 
 import "thread.kl";
+import "process.kl";
 
 const DEFAULT_RFLAGS:     u64 = 0x0202;
 const KERNEL_CS:          u64 = 0x08;
 const KERNEL_SS:          u64 = 0x10;
+const USER_CS:            u64 = 0x23;
+const USER_SS:            u64 = 0x1B;
 
 const REAPER_SLEEP_TICKS: u64 = 50;
 
@@ -24,7 +30,6 @@ struct SchedState {
 
     proc init(s: SchedState*) -> void {
         s.threads.init();
-
         s.current   = cast(Thread*, 0);
         s.idle      = cast(Thread*, 0);
         s.next_id   = 1;
@@ -33,7 +38,7 @@ struct SchedState {
         return;
     }
 
-    @inline proc add_thread(s: SchedState*, t: Thread*) -> void {
+    proc add_thread(s: SchedState*, t: Thread*) -> void {
         s.threads.add_tail(&t.sched_node);
 
         return;
@@ -123,11 +128,10 @@ struct SchedState {
 }
 
 var g_sched:          Spinlocked[SchedState];
-
 var g_current_thread: Thread*;
 var g_sched_active:   bool;
 
-@inline proc sched_reap_dead_threads() -> void {
+proc sched_reap_dead_threads() -> void {
     var guard = g_sched.lock_irq();
     defer guard.release_irq();
 
@@ -151,11 +155,15 @@ proc sched_init() -> void {
     var idle: Thread* = cast(Thread*, kalloc(sizeof(Thread)));
 
     idle[0] = Thread {
-        id:         0,
-        rsp:        0,
-        state:      ThreadState.RUNNING,
-        stack_base: 0,
-        stack_size: 0
+        id:               0,
+        rsp:              0,
+        kernel_stack_top: 0,
+        user_stack_top:   0,
+        state:            ThreadState.RUNNING,
+        stack_base:       0,
+        stack_size:       0,
+        process:          cast(Process*, 0),
+        is_user:          false
     };
 
     idle.sched_node.init();
@@ -214,15 +222,66 @@ proc thread_create(entry_point: u64, arg: u64) -> Thread* {
     var sched: SchedState* = guard.get();
 
     t[0] = Thread {
-        id:         sched.next_id,
-        rsp:        frame_addr,
-        state:      ThreadState.READY,
-        stack_base: cast(u64, stack_mem),
-        stack_size: THREAD_STACK_SIZE
+        id:               sched.next_id,
+        rsp:              frame_addr,
+        kernel_stack_top: stack_top,
+        user_stack_top:   0,
+        state:            ThreadState.READY,
+        stack_base:       cast(u64, stack_mem),
+        stack_size:       THREAD_STACK_SIZE,
+        process:          cast(Process*, 0),
+        is_user:          false
     };
 
     t.sched_node.init();
     t.wait_node.init();
+
+    sched.next_id = sched.next_id + 1;
+    sched.add_thread(t);
+
+    return t;
+}
+
+proc thread_create_user(proc_ptr: Process*, entry_point: u64, user_stack_top: u64, arg: u64) -> Thread* {
+    var t:         Thread* = cast(Thread*, kalloc(sizeof(Thread)));
+    var stack_mem: u8*     = kalloc(THREAD_STACK_SIZE);
+    var stack_top: u64     = (cast(u64, stack_mem) + THREAD_STACK_SIZE) & ~15;
+
+    var frame_addr: u64        = stack_top - sizeof(InterruptFrame);
+    var frame: InterruptFrame* = cast(InterruptFrame*, frame_addr);
+
+    frame[0] = InterruptFrame {
+        rdi:    arg,
+        rip:    entry_point,
+        cs:     USER_CS,
+        rflags: DEFAULT_RFLAGS,
+        rsp:    user_stack_top,
+        ss:     USER_SS
+    };
+
+    var guard = g_sched.lock_irq();
+    defer guard.release_irq();
+
+    var sched: SchedState* = guard.get();
+
+    t[0] = Thread {
+        id:               sched.next_id,
+        rsp:              frame_addr,
+        kernel_stack_top: stack_top,
+        user_stack_top:   user_stack_top,
+        state:            ThreadState.READY,
+        stack_base:       cast(u64, stack_mem),
+        stack_size:       THREAD_STACK_SIZE,
+        process:          proc_ptr,
+        is_user:          true
+    };
+
+    t.sched_node.init();
+    t.wait_node.init();
+
+    if (cast(u64, proc_ptr) != 0) {
+        proc_ptr.thread_count = proc_ptr.thread_count + 1;
+    }
 
     sched.next_id = sched.next_id + 1;
     sched.add_thread(t);
@@ -261,10 +320,27 @@ proc sched_schedule(current_rsp: u64) -> u64 {
 
     next_thread.state = ThreadState.RUNNING;
 
+    g_tss.rsp0           = next_thread.kernel_stack_top;
+    g_syscall_kernel_rsp = next_thread.kernel_stack_top;
+
+    if (cast(u64, next_thread.process) != 0) {
+        var target_cr3: PhysAddr = next_thread.process.cr3;
+
+        if (vmm_get_cr3() != target_cr3) {
+            vmm_set_cr3(target_cr3);
+        }
+    } else {
+        var kernel_cr3: PhysAddr = virt_to_phys(cast(VirtAddr, g_kernel_pml4));
+
+        if (vmm_get_cr3() != kernel_cr3) {
+            vmm_set_cr3(kernel_cr3);
+        }
+    }
+
     return next_thread.rsp;
 }
 
-@inline proc thread_yield() -> void {
+proc thread_yield() -> void {
     asm "int 34";
 
     return;
@@ -298,7 +374,7 @@ proc thread_exit() -> void {
     thread_yield();
 
     while (1) {
-        cpu_hlt();
+        asm "hlt";
     }
 
     return;

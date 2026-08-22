@@ -3,11 +3,13 @@ import "arch/x86_64/gdt.kl";
 import "arch/x86_64/idt.kl";
 import "arch/x86_64/isr.kl";
 import "arch/x86_64/io.kl";
+import "arch/x86_64/syscall.kl";
 
 import "drivers/keyboard.kl";
 import "drivers/vga.kl";
 
 import "sched/thread.kl";
+import "sched/process.kl";
 import "sched/sched.kl";
 
 import "boot/multiboot.kl";
@@ -16,9 +18,11 @@ import "mm/pmm.kl";
 import "mm/vmm.kl";
 import "mm/heap.kl";
 
-@extern var stack_top: u8;
-@extern var isr_stub_table: [256]u64;
-@extern var _kernel_end: u8;
+import "syscall/dispatch.kl";
+
+@extern var stack_top:       u8;
+@extern var isr_stub_table:  [256]u64;
+@extern var _kernel_end:     u8;
 
 proc task_worker_a(arg: u64) -> void {
     var counter: u64 = 0;
@@ -33,7 +37,6 @@ proc task_worker_a(arg: u64) -> void {
 
     return;
 }
-
 
 proc task_worker_b(arg: u64) -> void {
     var step: u64    = 0;
@@ -53,6 +56,40 @@ proc task_worker_b(arg: u64) -> void {
     return;
 }
 
+@inline proc u_write(fd: u64, buf: char*, count: u64) -> i64 {
+    return asm ("mov rax, 2\n    syscall" 
+                : in(fd) "rdi", in(buf) "rsi", in(count) "rdx" 
+                : out "rax" 
+                : clobber "rcx", "r11", "memory") -> i64;
+}
+
+@inline proc u_sleep(ticks: u64) -> void {
+    asm ("mov rax, 5\n    syscall" 
+         : in(ticks) "rdi" 
+         : clobber "rax", "rcx", "r11", "memory");
+    return;
+}
+
+proc user_main() -> void {
+    var msg: [22]char;
+
+    msg[0]  = ' '; msg[1]  = '['; msg[2]  = 'P'; msg[3]  = 'u'; msg[4]  = 'r'; 
+    msg[5]  = 'e'; msg[6]  = ' '; msg[7]  = 'K'; msg[8]  = 'l'; msg[9]  = 'a'; 
+    msg[10] = 'n'; msg[11] = 'g'; msg[12] = ' '; msg[13] = 'R'; msg[14] = 'i'; 
+    msg[15] = 'n'; msg[16] = 'g'; msg[17] = '3'; msg[18] = ']'; msg[19] = ' ';
+    msg[20] = '\0';
+
+    while (1) {
+        u_write(1, &msg[0], 20);
+        u_sleep(25);
+    }
+
+    return;
+}
+
+proc user_main_end() -> void {
+    return;
+}
 
 proc kmain(magic: u32, mbi: MultibootInfo*) -> void {
     vga_clear(0x1F);
@@ -104,15 +141,15 @@ proc kmain(magic: u32, mbi: MultibootInfo*) -> void {
     vga_print_hex(cast(u64, ptr_large), 0x1E, 16, 22);
 
     if (cast(u64, ptr_d) == cast(u64, ptr_b)) {
-        vga_print("[SUCCESS] Block Splitting & Reuse Verified!", 0x1A, 18, 4);
+        vga_print("[SUCCESS] Block Splitting & Reuse Verified!", 0x1A, 17, 4);
     }
 
     if (cast(u64, ptr_large) > 0x10000000) {
-        vga_print("[SUCCESS] On-Demand Heap Expansion Verified!", 0x1A, 19, 4);
+        vga_print("[SUCCESS] On-Demand Heap Expansion Verified!", 0x1A, 18, 4);
     }
 
     apic_init();
-    vga_print("[OK] APIC Subsystem (LAPIC & I/O APIC) Online", 0x1A, 20, 4);
+    vga_print("[OK] APIC Subsystem (LAPIC & I/O APIC) Online", 0x1A, 19, 4);
 
     var bsp_id: u8 = cast(u8, lapic_get_id());
 
@@ -124,7 +161,33 @@ proc kmain(magic: u32, mbi: MultibootInfo*) -> void {
     keyboard_init();
     ioapic_route_isa_irq(1, 33, bsp_id);
 
+    process_mgr_init();
+    syscall_init();
+
     sched_init();
+
+    var (user_proc, p_ok) = process_create(USER_DEFAULT_ENTRY, USER_DEFAULT_STACK);
+
+    if (p_ok) {
+        var (code_phys, c_ok)  = pmm_alloc_page();
+        var (stack_phys, s_ok) = pmm_alloc_page();
+
+        if (c_ok && s_ok) {
+            vmm_map_page(user_proc.pml4, USER_DEFAULT_ENTRY, code_phys, 7);
+            vmm_map_page(user_proc.pml4, USER_DEFAULT_STACK - 4096, stack_phys, 7);
+
+            var code_dst: u8* = cast(u8*, phys_to_virt(code_phys));
+
+            var code_src:  u8* = cast(u8*, user_main);
+            var code_size: u64 = cast(u64, user_main_end) - cast(u64, user_main);
+
+            memcpy(code_dst, code_src, code_size);
+
+            thread_create_user(user_proc, USER_DEFAULT_ENTRY, USER_DEFAULT_STACK - 16, 0);
+
+            vga_print("[OK] User Process Spawned (PID: 1)", 0x1A, 20, 4);
+        }
+    }
 
     thread_create(cast(u64, task_worker_a), 0);
     thread_create(cast(u64, task_worker_b), 0);
