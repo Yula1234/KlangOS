@@ -2,6 +2,7 @@ TARGET      := build/kernel.elf
 
 KLANG       := klang
 NASM        := nasm
+FASM        := fasm
 LD          := ld
 QEMU        := qemu-system-x86_64
 
@@ -13,7 +14,7 @@ CYAN        := \033[0;36m
 GREEN       := \033[0;32m
 RESET       := \033[0m
 
-KL_SRCS     := $(wildcard $(SRC_DIR)/*.kl)
+KL_SRCS     := $(shell find $(SRC_DIR) -type f -name "*.kl")
 ENTRY_KL    := $(SRC_DIR)/kernel.kl
 
 OBJS        := $(BUILD_DIR)/boot.o $(BUILD_DIR)/interrupts.o $(BUILD_DIR)/kernel.o
@@ -39,13 +40,14 @@ $(BUILD_DIR)/interrupts.o: $(SRC_DIR)/arch/x86_64/interrupts.asm
 	@$(NASM) -f elf64 $< -o $@
 
 $(BUILD_DIR)/kernel.o: $(BUILD_DIR)/kernel.asm
-	@printf "%b[NASM]%b  $<\n" "$(GREEN)" "$(RESET)"
-	@$(NASM) -f elf64 $< -o $@
+	@mkdir -p $(BUILD_DIR)
+	@printf "%b[FASM]%b  $<\n" "$(GREEN)" "$(RESET)"
+	@$(FASM) $< $@
 
 $(BUILD_DIR)/kernel.asm: $(KL_SRCS)
 	@mkdir -p $(BUILD_DIR)
 	@printf "%b[KLANG]%b $(ENTRY_KL)\n" "$(GREEN)" "$(RESET)"
-	@$(KLANG) -I src $(ENTRY_KL) -o $@
+	@$(KLANG) -S -I $(SRC_DIR) $(ENTRY_KL) -o $@
 
 run: all
 	@printf "%b[QEMU]%b  Starting emulator...\n" "$(CYAN)" "$(RESET)"
